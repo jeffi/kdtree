@@ -4,6 +4,7 @@
 #include <random>
 #include "test.hpp"
 #include <chrono>
+#include <iomanip>
 
 template <typename _T>
 struct StatePrinter;
@@ -249,11 +250,12 @@ struct KDTreeTests {
 
         Clock::time_point end = Clock::now();
 
-        double kdtreeMillis = std::chrono::duration<double, std::milli>(mid - start).count();
-        double linearMillis = std::chrono::duration<double, std::milli>(end - mid).count();
+        double kdtreeMillis = std::chrono::duration<double, std::micro>(mid - start).count();
+        double linearMillis = std::chrono::duration<double, std::micro>(end - mid).count();
 
-        std::cout << "Linear: " << linearMillis << std::endl
-                  << "KDTree: " << kdtreeMillis << std::endl;
+        std::cout << std::fixed << std::setprecision(2)
+                  << "Linear: " << std::setw(6) << linearMillis/Q << " us/query" << std::endl
+                  << "KDTree: " << std::setw(6) << kdtreeMillis/Q << " us/query" << std::endl;
 
         EXPECT(kdtreeMillis) < linearMillis;
     }
@@ -263,9 +265,9 @@ template <typename _Space>
 bool run(const std::string& spaceName, const _Space& space) {
     KDTreeTests<_Space> tests(space);
     bool success = true;
-    success &= runTest(spaceName + ".testAdd(1000)", [&] { tests.testAdd(1000); });
-    success &= runTest(spaceName + ".testNearest(1000,100)", [&] { tests.testNearest(1000, 100); });
-    success &= runTest(spaceName + ".testBenchmark(10000,100)", [&] { tests.testBenchmark(10000, 100); });
+    success &= runTest(spaceName + "::testAdd(1000)", [&] { tests.testAdd(1000); });
+    success &= runTest(spaceName + "::testNearest(1000,100)", [&] { tests.testNearest(1000, 100); });
+    success &= runTest(spaceName + "::testBenchmark(10000,100)", [&] { tests.testBenchmark(10000, 100); });
     return success;
 }    
 
@@ -274,7 +276,6 @@ int main(int argc, char *argv[]) {
 
     success &= run("SO3Space<double>", unc::robotics::kdtree::SO3Space<double>());
 
-#if 0
     Eigen::Array<double, 4, 2> bounds4d;
     bounds4d <<
         -1.1, 1,
@@ -282,7 +283,7 @@ int main(int argc, char *argv[]) {
         -1.3, 3,
         -1.4, 4;
     success &= run("BoundedEuclideanSpace<double, 4>", unc::robotics::kdtree::BoundedEuclideanSpace<double, 4>(bounds4d));
-#endif
+
 #if 0
     Eigen::Array<double, 3, 2> bounds3d(bounds4d.block<3, 2>(0,0));
     success &= run("BoundedSE3Space<double>", unc::robotics::kdtree::BoundedSE3Space<double>(
