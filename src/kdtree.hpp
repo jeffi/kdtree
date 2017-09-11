@@ -11,12 +11,18 @@ namespace unc {
 namespace robotics {
 namespace kdtree {
 
+// TODO: change `_rows` to `_dimensions` everywhere
+
 template <typename _Scalar, int _rows>
 class EuclideanSpace {
 public:
     typedef _Scalar Distance;
     typedef Eigen::Matrix<_Scalar, _rows, 1> State;
     static constexpr int axes = _rows;
+
+    inline Distance distance(const State& a, const State& b) const {
+        return (a - b).norm();
+    }
 };
 
 template <typename _Scalar, int _rows>
@@ -40,6 +46,10 @@ public:
     inline const Eigen::Array<_Scalar, _rows, 2>& bounds() const {
         return bounds_;
     }
+
+    inline _Scalar bounds(int r, int c) const {
+        return bounds_(r, c);
+    }
 };
 
 template <typename _Scalar>
@@ -48,6 +58,10 @@ public:
     typedef _Scalar Distance;
     typedef Eigen::Quaternion<_Scalar> State;
     static constexpr int axes = 3;
+
+    inline Distance distance(const State& a, const State& b) const {
+        return std::acos(std::abs(a.coeffs().matrix().dot(b.coeffs().matrix())));
+    }
 };
 
 template <typename _Space, std::intmax_t _num, std::intmax_t _den>
@@ -55,10 +69,16 @@ class RatioWeightedSpace : public _Space {
 public:
     // inherit constructor
     using _Space::_Space;
-
+    
     RatioWeightedSpace(const _Space& space)
         : _Space(space)
     {
+    }
+
+    inline typename _Space::Distance distance(
+        const typename _Space::State& a,
+        const typename _Space::State& b) const {
+        return _Space::distance(a, b) * _num / _den;
     }
 };
 
@@ -108,8 +128,31 @@ struct sum { static constexpr int value = 0; };
 template <int first, int ... rest>
 struct sum<first, rest...> { static constexpr int value = first + sum<rest...>::value; };
 
-}
+template <int _index, typename ... _Spaces>
+struct CompoundDistance {
+    typedef CompoundState<typename _Spaces::State...> State;
+    typedef typename detail::ScalarResult<typename _Spaces::Distance...>::type Distance;
 
+    inline static Distance accum(const std::tuple<_Spaces...>& spaces, const State& a, const State& b, Distance x) {
+        return CompoundDistance<_index + 1, _Spaces...>::accum(
+            spaces,
+            x + std::get<_index>(spaces).distance(
+                a.template substate<_index>(),
+                b.template substate<_index>()));
+    }
+};
+// base case, x contains accumulated distance
+template <typename ... _Spaces>
+struct CompoundDistance<sizeof...(_Spaces), _Spaces...> {
+    typedef CompoundState<typename _Spaces::State...> State;
+    typedef typename detail::ScalarResult<typename _Spaces::Distance...>::type Distance;
+
+    inline static Distance accum(const std::tuple<_Spaces...>& spaces, const State& a, const State& b, Distance x) {
+        return x;
+    }
+};
+
+} // namespace detail
 
 template <typename ... _Spaces>
 class CompoundSpace {
@@ -133,6 +176,14 @@ public:
     const typename std::tuple_element<_index, std::tuple<_Spaces...>>::type& subspace() const {
         return std::get<_index>(spaces_);
     }
+
+    // Distance distance(const State& a, const State& b) {
+    //     return detail::CompoundDistance<1, _Spaces...>::accum(
+    //         spaces_,
+    //         spaces_.template subspace<0>().distance(
+    //             a.template substate<0>(),
+    //             b.template substate<0>()));
+    // }
 };
 
 template <typename _Scalar, std::intmax_t _qWeight = 1, std::intmax_t _tWeight = 1>
@@ -145,184 +196,7 @@ using BoundedSE3Space = CompoundSpace<
     RatioWeightedSpace<SO3Space<_Scalar>, _qWeight, 1>,
     RatioWeightedSpace<BoundedEuclideanSpace<_Scalar, 3>, _tWeight, 1>>;
 
-
-// template <typename _Space>
-// struct CompoundSpace<_Space> {
-// };
-
-// template <typename _Space, typename ... _Rest>
-// struct CompoundSpace<_Space, _Rest...> {
-// };
-
-
-// template <typename ... _Spaces>
-// struct CompoundSpace {
-//     typedef typename std::tuple<typename _Spaces::State...> State;
-// };
-
-// template <typename _Scalar, std::intmax_t _qWeight = 1, std::intmax_t _tWeight = 1>
-// using SE3Space = CompoundSpace<
-//     WeightedSpace<SO3Space<_Scalar>, _qWeight, 1>,
-//     WeightedSpace<EuclideanSpace<_Scalar, 3>, _tWeight, 1>>;
-
 namespace detail {
-
-// // Bounding volume for EuclideanSpace with matching template arguments
-// template <typename _Scalar, int _rows>
-// struct EuclideanBounds {
-//     Eigen::Array<_Scalar, _rows, 2> bounds_;
-//     template <typename _Derived>
-//     EuclideanBounds(const Eigen::DenseBase<_Derived>& bounds)
-//         : bounds_(bounds)
-//     {
-//     }
-
-//     _Scalar split(unsigned* axis) const {
-//         (bounds_.col(1) - bounds_.col(0)).maxCoeff(axis);
-//         return bounds_.row(*axis).sum() * static_cast<_Scalar>(0.5);
-//     }
-
-//     inline _Scalar& operator() (int r, int c) {
-//         return bounds_(r, c);
-//     }
-
-//     template <typename _Char, typename _Traits>
-//     friend std::basic_ostream<_Char,_Traits>&
-//     operator << (std::basic_ostream<_Char,_Traits>& os, const EuclideanBounds& b) {
-//         return os << b.bounds_;
-//     }
-// };
-
-// // Bounding volume for unbounded spaces (e.g. SO(3))
-// struct UnBounds {
-//     template <typename _Char, typename _Traits>
-//     friend std::basic_ostream<_Char, _Traits>&
-//     operator << (std::basic_ostream<_Char, _Traits>& os, const UnBounds&) {
-//         return os << "UnBounds";
-//     }
-// };
-
-// // Helper class for printing tuple values
-// template <typename _Tuple, std::size_t _N>
-// struct TuplePrinter {
-//     template <typename _Char, typename _Traits>
-//     static void print(std::basic_ostream<_Char,_Traits>& os, const _Tuple& t) {
-//         TuplePrinter<_Tuple, _N-1>::print(os, t);
-//         os << ", " << std::get<_N-1>(t);
-//     }
-// };
-
-// template <typename _Tuple>
-// struct TuplePrinter<_Tuple, 1> {
-//     template <typename _Char, typename _Traits>
-//     static void print(std::basic_ostream<_Char,_Traits>& os, const _Tuple& t) {
-//         os << std::get<0>(t);
-//     }
-// };
-
-// // Bounding volume for a compound space
-// template <typename ... _Bounds>
-// struct CompoundBounds {
-//     std::tuple<_Bounds...> bounds_;
-    
-//     template <typename ... _Args>
-//     CompoundBounds(_Args&& ... args)
-//         : bounds_(std::forward<_Args>(args)...)
-//     {
-//     }    
-
-//     template <typename _Char, typename _Traits>
-//     friend std::basic_ostream<_Char,_Traits>&
-//     operator << (std::basic_ostream<_Char,_Traits>& os, const CompoundBounds& b) {
-//         TuplePrinter<decltype(bounds_), sizeof...(_Bounds)>::print(os, b.bounds_);
-//         return os;
-//     }
-// };
-
-// // Selects the bounding volume appropriate for a given space.
-// // EuclideanSpace -> EuclideanBounds
-// // SO3Space -> UnBounds
-// // SE3Space -> EuclideanBounds
-// // CompoundSpace<...> -> UnBounds, EuclideanBounds, or CompoundBounds<...>
-// template <typename _Space>
-// struct KDBoundsSelector;
-
-// template <typename _Scalar, int _rows>
-// struct KDBoundsSelector<EuclideanSpace<_Scalar, _rows>> {
-//     typedef EuclideanBounds<_Scalar, _rows> type;
-// };
-
-// template <typename _Scalar>
-// struct KDBoundsSelector<SO3Space<_Scalar>> {
-//     typedef UnBounds type;
-// };
-
-// template <typename _Space, std::intmax_t _num, std::intmax_t _den>
-// struct KDBoundsSelector<WeightedSpace<_Space, _num, _den>>
-//     : KDBoundsSelector<_Space>
-// {
-// };
-
-// // Final step in CompoundBounds selection, only use
-// // CompoundBounds<...> for CompoundSpace's that need them.
-// template <typename ... _Bounds>
-// struct OptionalCompoundBounds { typedef CompoundBounds<_Bounds...> type; };
-// template <typename _Bounds>
-// struct OptionalCompoundBounds<_Bounds> { typedef _Bounds type; };
-// template <>
-// struct OptionalCompoundBounds<> { typedef UnBounds type; };
-
-// // Helper class for building the bounding type of a CompoundSpace
-// //
-// // The _Bounds... are non-empty bounding types from spaces already processed,
-// // The contained Build<...> template recurses arguments adding to
-// // CompoundBoundsBuilder<...> type arguments as it goes.
-// template <typename ... _Bounds>
-// struct CompoundBoundsBuilder {
-//     // Base case, no more spaces to peel off into _Bounds
-//     //
-//     // Now we return the appropriate bounding type for the list of
-//     // bounds, depending on the number of bounds in the list.
-//     // 0 bound types = use UnBounds,
-//     // 1 bound type = use that type
-//     // 2+ = wrap into CompoundBounds
-//     template <typename ... _Spaces>
-//     struct Build {
-//         typedef typename OptionalCompoundBounds<_Bounds...>::type type;
-//     };
-
-//     template <typename _Space0, typename ... _Spaces>
-//     struct Build<_Space0, _Spaces...> {
-//         typedef typename KDBoundsSelector<_Space0>::type BoundsN;
-//         typedef typename std::conditional<
-//             std::is_empty<BoundsN>::value,
-//             Build<_Spaces...>,
-//             typename CompoundBoundsBuilder<_Bounds..., BoundsN>::template Build<_Spaces...>>::type::type type;
-//     };
-// };
-
-// template <typename ... _Spaces>
-// struct KDBoundsSelector<CompoundSpace<_Spaces...>> {
-//     typedef typename CompoundBoundsBuilder<>::template Build<_Spaces...>::type type;
-// };
-
-
-// template <typename _Space>
-// using KDBounds = typename KDBoundsSelector<_Space>::type;
-
-// // TODO: use these in the traversing of the trees
-// template <typename _Space>
-// struct KDTraversalBounds;
-
-// template <typename _Scalar, int _rows>
-// struct KDTraversalBounds<EuclideanSpace<_Scalar, _rows>> {
-    
-// };
-
-// template <typename _Scalar>
-// struct KDTraversalBounds<SO3Space<_Scalar>> {
-// };
-    
 
 template <typename _T>
 struct KDNode {
@@ -338,6 +212,9 @@ struct KDNode {
 
 template <typename _Space>
 struct KDAdder;
+
+template <typename _Space>
+struct KDWalker;
 
 template <typename _Space>
 struct KDAdderBase {
@@ -384,6 +261,54 @@ struct KDAdder<BoundedEuclideanSpace<_Scalar, _rows>> : KDAdderBase<BoundedEucli
     }
 };
 
+template <typename _Scalar, int _rows>
+struct KDWalker<BoundedEuclideanSpace<_Scalar, _rows>> : KDAdder<BoundedEuclideanSpace<_Scalar, _rows>> {
+    typedef KDAdder<BoundedEuclideanSpace<_Scalar, _rows>> Base;
+    typedef BoundedEuclideanSpace<_Scalar, _rows> Space;
+    typedef typename Space::State State;
+    typedef typename Space::Distance Distance;
+
+    Eigen::Array<_Scalar, _rows, 1> deltas_;
+    
+    KDWalker(const State& key, const Space& space)
+        : Base(key, space)
+    {
+        deltas_.setZero();
+    }
+
+    using Base::key_;
+    using Base::bounds_;
+
+    template <typename _Nearest, typename _T, typename _MinDist>
+    void traverse(_Nearest& t, const KDNode<_T> *n, int axis, Distance dist, _MinDist minDist, unsigned depth) {
+        
+        _Scalar split = (bounds_(axis, 0) + bounds_(axis, 1)) * static_cast<_Scalar>(0.5);
+        _Scalar delta = (split - key_[axis]);
+        int childNo = delta < 0;
+
+        if (const KDNode<_T>* c = n->children_[childNo]) {
+            std::swap(bounds_(axis, 1-childNo), split);
+            t.traverse(c, minDist, depth);
+            std::swap(bounds_(axis, 1-childNo), split);
+        }
+
+        t.update(n);
+
+        if (const KDNode<_T>* c = n->children_[1-childNo]) {
+            _Scalar newDelta = delta*delta;
+            _Scalar oldDelta = deltas_[axis];
+            minDist = minDist - oldDelta + newDelta;
+            if (minDist <= t.minDistSquared()) {
+                std::swap(bounds_(axis, childNo), split);
+                deltas_[axis] = newDelta;
+                t.traverse(c, minDist, depth);
+                deltas_[axis] = oldDelta;
+                bounds_(axis, childNo) = split;
+            }
+        }
+    }
+};
+
 template <typename _Scalar>
 int volumeIndex(const Eigen::Quaternion<_Scalar>& q) {
     int index;
@@ -408,7 +333,7 @@ Eigen::Array<typename _DerivedMin::Scalar, 2, 1> axisMidPoint(
     // Scalar s0 = sin(theta / 2) * d;
     Scalar s0 = std::sqrt(static_cast<Scalar>(0.5) / (dq + 1));
 
-    std::cout << "depth=" << depth << ", s0=" << std::setprecision(15) << s0 << std::endl;
+    // std::cout << "depth=" << depth << ", s0=" << std::setprecision(15) << s0 << std::endl;
     return (min + max) * s0;
 }
 
@@ -434,14 +359,6 @@ struct KDAdder<SO3Space<_Scalar>> : KDAdderBase<SO3Space<_Scalar>> {
         bounds_[0] = rt;
         bounds_[1].colwise() = Eigen::Array<Scalar, 2, 1>(-rt, rt);
     }
-    KDAdder(const KDAdder&) = delete;
-    KDAdder(KDAdder&& other) = default;
-    //     : vol_(other.vol_),
-    //       depth_(other.depth_),
-    //       key_(other.key_),
-    //       bounds_(other.bounds_)
-    // {
-    // }
 
     Distance maxAxis(int* axis) {
         *axis = depth_ % 3;
@@ -602,6 +519,56 @@ struct KDAdder<CompoundSpace<_Spaces...>> : KDAdderBase<CompoundSpace<_Spaces...
     }
 };
 
+
+template <typename _Space, typename _T, typename _TtoKey>
+struct KDNearest {
+    typedef typename _Space::Distance Distance;
+
+    // TODO: update template to use member pointers take tree instead
+    // (and maybe use member pointers, or just standard locations.)
+    // (Will need a friend in the tree.)
+    const _Space& space_;
+    const _TtoKey& tToKey_;
+
+    const typename _Space::State& key_;
+    
+    KDWalker<_Space> walker_;
+    const KDNode<_T>* nearest_;
+    Distance dist_;
+
+    KDNearest(
+        const _Space& space,
+        const _TtoKey& tToKey,
+        const typename _Space::State& key)
+        : space_(space),
+          tToKey_(tToKey),
+          key_(key),
+          walker_(key, space),
+          nearest_(nullptr),
+          dist_(std::numeric_limits<Distance>::infinity())
+    {
+    }
+
+    Distance minDistSquared() const {
+        return dist_*dist_;
+    }
+    
+    void traverse(const KDNode<_T>* n, Distance minDist, unsigned depth) {
+        int axis;
+        Distance dist = walker_.maxAxis(&axis);
+        walker_.traverse(*this, n, axis, dist, minDist, depth);
+    }
+
+    void update(const KDNode<_T>* n) {
+        Distance d = space_.distance(tToKey_(n->value_), key_);
+        if (d < dist_) {
+            dist_ = d;
+            nearest_ = n;
+        }
+    }
+};
+
+
 } // namespace detail
 
 
@@ -609,6 +576,8 @@ struct KDAdder<CompoundSpace<_Spaces...>> : KDAdderBase<CompoundSpace<_Spaces...
 template <typename _T, typename _Space, typename _TtoKey>
 class KDTree {
     typedef detail::KDNode<_T> Node;
+    typedef typename _Space::State Key;
+    typedef typename _Space::Distance Distance;
 
     _Space space_;
     Node *root_;
@@ -661,6 +630,36 @@ public:
         if (depth_ < depth)
             depth_ = depth;
     }
+
+    // Returns a pointer to the nearest _T in the tree, or `nullptr`
+    // if the tree is empty.
+    const _T* nearest(const Key& key, Distance* dist = nullptr) {
+        if (root_ == nullptr)
+            return nullptr;
+        
+        detail::KDNearest<_Space, _T, _TtoKey> nearest(space_, tToKey_, key);
+        nearest.traverse(root_, 0, 0);
+        if (dist)
+            *dist = nearest.dist_;
+        return &nearest.nearest_->value_;
+    }
+
+    // // Returns the `k` nearest neighbors of `key`.  The nearest
+    // // neighbors can optionally be bounded to a maximum radius.
+    // const void nearest(
+    //     std::vector<std::pair<Distance,_T>>& results,
+    //     const Key& key,
+    //     std::size_t k,
+    //     Distance maxRadius = std::numeric_limits<Distance>::infinity())
+    // {
+    //     results.clear();
+    //     if (!root_)
+    //         return;
+
+    //     detail::KDNearestK<_Space, _T, _TtoKey> nearest(space_, tToKey_, key, k, maxRadius, results);
+    //     nearest.traverse(root_, 0, 0);
+    //     std::sort_heap(results.begin(), results.end(), detail::ComparePairFirst());
+    // }
 };
 
 } // namespace kdtree
