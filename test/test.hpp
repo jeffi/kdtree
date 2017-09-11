@@ -52,20 +52,12 @@ struct Expectation {
 
     mutable bool checked_;
 
-    template <typename _Int>
-    Expectation(const _T& value, const char *expr, const char *file, _Int line,
-                typename std::enable_if_t<std::is_integral<_Int>::value
-                && (!std::is_move_constructible<_T>::value
-                    || std::is_pointer<_T>::value)>* enable = 0)
+    Expectation(const _T& value, const char *expr, const char *file, int line)
         : value_(value), expr_(expr), file_(file), line_(line), checked_(false)
     {
     }
 
-    template <typename _Int>
-    Expectation(_T&& value, const char *expr, const char *file, _Int line,
-                typename std::enable_if_t<
-                std::is_integral<_Int>::value && std::is_move_constructible<_T>::value
-                && !std::is_pointer<_T>::value>* enable = 0)
+    Expectation(_T&& value, const char *expr, const char *file, int line)
         : value_(std::move(value)), expr_(expr), file_(file), line_(line), checked_(false)
     {
     }
@@ -100,17 +92,20 @@ struct Expectation {
 };
 
 
-#define EXPECT(expr) (Expectation<decltype(expr)>(expr, #expr, __FILE__, __LINE__))
+#define EXPECT(expr) (Expectation<typename std::decay<decltype(expr)>::type>(expr, #expr, __FILE__, __LINE__))
 
 template <typename _Fn>
 bool runTest(const std::string& name, _Fn fn) {
     auto assertionsBefore = g_assertionCount.load();
     try {
         fn();
-        std::cout << name << " \33[32mpassed\33[0m (" << g_assertionCount.load() - assertionsBefore << " assertions)" << std::endl;
-        return false;
+        auto nAsserts = g_assertionCount.load() - assertionsBefore;
+        std::cout << name << " \33[32mpassed\33[0m ("
+                  << nAsserts << " assertion" << (nAsserts == 1 ? "" : "s")
+                  << ")" << std::endl;
+        return true;
     } catch (const std::runtime_error& e) {
         std::cerr << name << " \33[31;1mfailed.\33[0m\n\t" << e.what() << std::endl;
-        return true;
+        return false;
     }
 }    

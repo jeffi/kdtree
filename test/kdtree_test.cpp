@@ -1,8 +1,9 @@
+#include <iostream>
 #include "kdtree.hpp"
 #include <vector>
 #include <random>
-#include <iostream>
 #include "test.hpp"
+#include <chrono>
 
 template <typename _T>
 struct StatePrinter;
@@ -183,6 +184,14 @@ struct KDTreeTests {
             linear.push_back(i);
         }
 
+        // int no = 0;
+        // tree.visit([&no] (int index, unsigned depth) {
+        //         std::cout << no++ << ": ";
+        //         for (unsigned i=0 ; i<depth ; ++i)
+        //             std::cout << "  ";
+        //         std::cout << index << std::endl;
+        //     });
+
         for (int i=0 ; i<Q ; ++i) {
             auto q = randomState(space_, rng);
             typename Space::Distance d;
@@ -190,10 +199,63 @@ struct KDTreeTests {
             EXPECT(index) != nullptr;
             std::partial_sort(linear.begin(), linear.begin()+1, linear.end(), [&] (int a, int b) {
                     return space_.distance(nodes[a].state_, q) <
-                        space_.distance(nodes[b].state_, q);
+                           space_.distance(nodes[b].state_, q);
                 });
+            // std::cout << "linear: " << space_.distance(nodes[linear[0]].state_, q) << std::endl;
             EXPECT(*index) == linear[0];
+            EXPECT(d) == space_.distance(nodes[linear[0]].state_, q);
         }
+    }
+
+    void testBenchmark(int N, int Q) const {
+        std::vector<TestNode<State>> nodes;
+        std::vector<int> linear;
+        nodes.reserve(N);
+        linear.reserve(N);
+        unc::robotics::kdtree::KDTree<int, Space, TestIndexKey<State>> tree(TestIndexKey<State>(nodes), space_);
+
+        std::mt19937_64 rng;
+        for (int i=0 ; i<N ; ++i) {
+            nodes.emplace_back(randomState(space_, rng), i);
+            tree.add(i);
+            linear.push_back(i);
+        }
+
+        std::vector<State> queries;
+        queries.reserve(N);
+        for (int i=0 ; i<Q ; ++i)
+            queries.push_back(randomState(space_, rng));
+
+        std::vector<int> linearResults;
+        std::vector<int> kdtreeResults;
+
+        typedef std::chrono::high_resolution_clock Clock;
+
+        Clock::time_point start = Clock::now();
+        
+        for (int i=0 ; i<Q ; ++i)
+            kdtreeResults.push_back(*tree.nearest(queries[i]));
+
+        Clock::time_point mid = Clock::now();
+
+        for (int i=0 ; i<Q ; ++i) {
+            auto& q = queries[i];
+            std::partial_sort(linear.begin(), linear.begin()+1, linear.end(), [&] (int a, int b) {
+                    return space_.distance(nodes[a].state_, q) <
+                           space_.distance(nodes[b].state_, q);
+                });
+            linearResults.push_back(linear[0]);
+        }
+
+        Clock::time_point end = Clock::now();
+
+        double kdtreeMillis = std::chrono::duration<double, std::milli>(mid - start).count();
+        double linearMillis = std::chrono::duration<double, std::milli>(end - mid).count();
+
+        std::cout << "Linear: " << linearMillis << std::endl
+                  << "KDTree: " << kdtreeMillis << std::endl;
+
+        EXPECT(kdtreeMillis) < linearMillis;
     }
 };
 
@@ -203,14 +265,16 @@ bool run(const std::string& spaceName, const _Space& space) {
     bool success = true;
     success &= runTest(spaceName + ".testAdd(1000)", [&] { tests.testAdd(1000); });
     success &= runTest(spaceName + ".testNearest(1000,100)", [&] { tests.testNearest(1000, 100); });
+    success &= runTest(spaceName + ".testBenchmark(10000,100)", [&] { tests.testBenchmark(10000, 100); });
     return success;
 }    
 
 int main(int argc, char *argv[]) {
     bool success = true;
-#if 0
+
     success &= run("SO3Space<double>", unc::robotics::kdtree::SO3Space<double>());
-#endif
+
+#if 0
     Eigen::Array<double, 4, 2> bounds4d;
     bounds4d <<
         -1.1, 1,
@@ -218,16 +282,17 @@ int main(int argc, char *argv[]) {
         -1.3, 3,
         -1.4, 4;
     success &= run("BoundedEuclideanSpace<double, 4>", unc::robotics::kdtree::BoundedEuclideanSpace<double, 4>(bounds4d));
-
-    #if 0
+#endif
+#if 0
     Eigen::Array<double, 3, 2> bounds3d(bounds4d.block<3, 2>(0,0));
     success &= run("BoundedSE3Space<double>", unc::robotics::kdtree::BoundedSE3Space<double>(
             unc::robotics::kdtree::SO3Space<double>(),
             unc::robotics::kdtree::BoundedEuclideanSpace<double, 3>(bounds3d)));
-    #endif
+#endif
     // KDTreeTests<unc::robotics::kdtree::SO3Space<double>> tests(space);
     // std::mt19937_64 rng;
     // auto q = randomState(space, rng);
     // std::cout << q.coeffs().transpose() << std::endl;
+
     return success ? 0 : 1;
 }

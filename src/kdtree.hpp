@@ -208,6 +208,14 @@ struct KDNode {
             if (children_[i])
                 delete children_[i];
     }
+
+    template <typename _Fn>
+    void visit(_Fn& fn, unsigned depth) const {
+        fn(value_, depth++);
+        for (int i=0 ; i<2 ; ++i)
+            if (children_[i])
+                children_[i]->visit(fn, depth);
+    }
 };
 
 template <typename _Space>
@@ -281,7 +289,6 @@ struct KDWalker<BoundedEuclideanSpace<_Scalar, _rows>> : KDAdder<BoundedEuclidea
 
     template <typename _Nearest, typename _T, typename _MinDist>
     void traverse(_Nearest& t, const KDNode<_T> *n, int axis, Distance dist, _MinDist minDist, unsigned depth) {
-        
         _Scalar split = (bounds_(axis, 0) + bounds_(axis, 1)) * static_cast<_Scalar>(0.5);
         _Scalar delta = (split - key_[axis]);
         int childNo = delta < 0;
@@ -400,8 +407,94 @@ struct KDAdder<SO3Space<_Scalar>> : KDAdderBase<SO3Space<_Scalar>> {
             break;
         }
 
+        assert(p->children_[childNo] == nullptr);
         p->children_[childNo] = n;
         return depth;        
+    }
+};
+
+template <typename _Scalar>
+struct KDWalker<SO3Space<_Scalar>> : KDAdder<SO3Space<_Scalar>> {
+    typedef _Scalar Scalar;
+    typedef SO3Space<Scalar> Space;
+    typedef KDAdder<Space> Base;
+    typedef typename Space::State State;
+    typedef typename Space::Distance Distance;
+
+    int tVol_;
+
+    using Base::bounds_;
+    using Base::depth_;
+    using Base::key_;
+    using Base::vol_;
+    
+    KDWalker(const State& key, const Space& space)
+        : Base(key, space)
+    {
+    }
+
+    template <typename _Nearest, typename _T, typename _MinDist>
+    void traverse(_Nearest& t, const KDNode<_T>* n, int axis, Distance dist, _MinDist minDist, unsigned depth) {
+        int childNo;
+        assert(vol_ == volumeIndex(key_));
+        switch (++depth_) {
+        case 2:
+            if (KDNode<_T>* c = n->children_[childNo = vol_ < 2]) {
+                tVol_ = vol_ & 2;
+                t.traverse(c, minDist, depth);
+            }
+            t.update(n);
+            if (KDNode<_T>* c = n->children_[1-childNo]) {
+                tVol_ = (vol_ & 2) ^ 2;
+                t.traverse(c, minDist, depth);
+            }
+            break;
+
+        case 3:
+            if (KDNode<_T>* c = n->children_[childNo = vol_ & 1]) {
+                tVol_ = (tVol_ & 2) | (vol_ & 1);
+                if (key_.coeffs()[tVol_] < 0)
+                    key_.coeffs() = -key_.coeffs();
+                t.traverse(c, minDist, depth);
+            }
+            t.update(n);
+            if (KDNode<_T>* c = n->children_[1-childNo]) {
+                tVol_ = (tVol_ & 2) | ((vol_ & 1) ^ 1);
+                if (key_.coeffs()[tVol_] < 0)
+                    key_.coeffs() = -key_.coeffs();
+                t.traverse(c, minDist, depth);
+            }
+            break;
+
+        default:
+            Scalar s0 = std::sqrt(static_cast<Scalar>(0.5) / (std::cos(dist) + 1));
+            Eigen::Matrix<Scalar, 2, 1> mp =
+                (bounds_[0].col(axis) + bounds_[1].col(axis)) * s0;
+            Scalar dot = mp[0]*key_.coeffs()[tVol_] + mp[1]*key_.coeffs()[(tVol_ + axis + 1) % 4];
+
+            if (KDNode<_T>* c = n->children_[childNo = (dot > 0)]) {
+                Eigen::Matrix<Scalar, 2, 1> tmp(bounds_[1-childNo].col(axis));
+                bounds_[1-childNo].col(axis) = mp;
+                t.traverse(c, minDist, depth);
+                bounds_[1-childNo].col(axis) = tmp;
+            }
+
+            t.update(n);
+
+            if (KDNode<_T>* c = n->children_[1-childNo]) {
+                Scalar df =
+                    bounds_[childNo](0, axis) * key_.coeffs()[tVol_] +
+                    bounds_[childNo](1, axis) * key_.coeffs()[(tVol_ + axis + 1) % 4];
+                df = std::min(std::abs(dot), std::abs(df));
+                if (std::asin(df) < t.minDist()) {
+                    Eigen::Matrix<Scalar, 2, 1> tmp(bounds_[childNo].col(axis));
+                    bounds_[childNo].col(axis) = mp;
+                    t.traverse(c, minDist, depth);
+                    bounds_[childNo].col(axis) = tmp;
+                }
+            }
+        }
+        --depth_;
     }
 };
 
@@ -547,20 +640,26 @@ struct KDNearest {
           nearest_(nullptr),
           dist_(std::numeric_limits<Distance>::infinity())
     {
+        // std::cout << "===== " << std::endl;
     }
 
     Distance minDistSquared() const {
         return dist_*dist_;
     }
+
+    Distance minDist() const {
+        return dist_;
+    }
     
     void traverse(const KDNode<_T>* n, Distance minDist, unsigned depth) {
         int axis;
         Distance dist = walker_.maxAxis(&axis);
-        walker_.traverse(*this, n, axis, dist, minDist, depth);
+        walker_.traverse(*this, n, axis, dist, minDist, depth+1);
     }
 
     void update(const KDNode<_T>* n) {
         Distance d = space_.distance(tToKey_(n->value_), key_);
+        // std::cout << "dist " << d << " < " << dist_ << std::endl;
         if (d < dist_) {
             dist_ = d;
             nearest_ = n;
@@ -642,6 +741,12 @@ public:
         if (dist)
             *dist = nearest.dist_;
         return &nearest.nearest_->value_;
+    }
+
+    template <typename _Fn>
+    void visit(const _Fn& fn) const {
+        if (root_)
+            root_->visit(fn, 0);
     }
 
     // // Returns the `k` nearest neighbors of `key`.  The nearest
