@@ -55,6 +55,13 @@ int main(int argc, char *argv[]) {
     Eigen::Array<double, 3, 2> bounds;
     
     benchmark("SO3Space<double>", SO3Space<double>(), N, Q);
+
+    bounds.col(0) = -0.01;
+    bounds.col(1) = 0.01;
+    benchmark("SE3Space<double>(-0.01,0.01)", BoundedSE3Space<double>(
+                  SO3Space<double>(),
+                  BoundedEuclideanSpace<double, 3>(bounds)), N, Q);
+
     bounds.col(0) = -1;
     bounds.col(1) = 1;
     benchmark("SE3Space<double>(-1,1)", BoundedSE3Space<double>(
