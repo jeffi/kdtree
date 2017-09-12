@@ -381,7 +381,13 @@ struct KDAdder<SO3Space<_Scalar>> : KDAdderBase<SO3Space<_Scalar>> {
         // Since we're doing midpoint splits, the distance along an
         // axis halves every time it revisits an axis.  We can save on
         // the costly acos here.
+#if 1
         return (depth_ <= 3) ? M_PI_2 :  M_PI/(1 << (depth_ / 3));
+#else
+        // ldexp does exactly the above, but it is slower in
+        // benchmarks than the above.
+        return (depth_ <= 3) ? M_PI_2 : std::ldexp(static_cast<Distance>(M_PI), -(depth_/3));
+#endif
 #endif
     }
 
