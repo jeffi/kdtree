@@ -136,6 +136,7 @@ struct CompoundDistance {
     inline static Distance accum(const std::tuple<_Spaces...>& spaces, const State& a, const State& b, Distance x) {
         return CompoundDistance<_index + 1, _Spaces...>::accum(
             spaces,
+            a, b,
             x + std::get<_index>(spaces).distance(
                 a.template substate<_index>(),
                 b.template substate<_index>()));
@@ -177,13 +178,14 @@ public:
         return std::get<_index>(spaces_);
     }
 
-    // Distance distance(const State& a, const State& b) {
-    //     return detail::CompoundDistance<1, _Spaces...>::accum(
-    //         spaces_,
-    //         spaces_.template subspace<0>().distance(
-    //             a.template substate<0>(),
-    //             b.template substate<0>()));
-    // }
+    Distance distance(const State& a, const State& b) const {
+        return detail::CompoundDistance<1, _Spaces...>::accum(
+            spaces_,
+            a, b,
+            std::get<0>(spaces_).distance(
+                a.template substate<0>(),
+                b.template substate<0>()));
+    }
 };
 
 template <typename _Scalar, std::intmax_t _qWeight = 1, std::intmax_t _tWeight = 1>
@@ -510,17 +512,87 @@ struct KDAdder<RatioWeightedSpace<_Space, _num, _den>> : KDAdder<_Space> {
     }
 };
 
+template <typename _Nearest, std::intmax_t _num, std::intmax_t _den>
+struct RatioWeightedNearest {
+    typedef typename _Nearest::Distance Distance;
+
+    _Nearest& nearest_;
+    
+    RatioWeightedNearest(_Nearest& nearest)
+        : nearest_(nearest)
+    {
+    }
+
+    Distance minDistSquared() const {
+        // called by the contained (unweighted) space, the traversal
+        // uses the weighted metric so the return value needs to be
+        // unweighted.
+        return nearest_.minDistSquared() * (_den * _den) / (_num * _num);
+    }
+
+    Distance minDist() const {
+        // See comment in minDistSquared.
+        return nearest_.minDist() * _den / _num;
+    }
+
+    template <typename _T>
+    void traverse(const KDNode<_T>* n, Distance minDist, unsigned depth) {
+        // The unweighted space calls this traversal method to
+        // traverse to a child node.  The `minDist` value thus must be
+        // weighted again.
+        nearest_.traverse(n, minDist * _num / _den, depth);
+    }
+
+    template <typename _T>
+    void update(const KDNode<_T>* n) {
+        nearest_.update(n);
+    }
+};
+
+
+template <typename _Space, std::intmax_t _num, std::intmax_t _den>
+struct KDWalker<RatioWeightedSpace<_Space, _num, _den>>
+    : KDWalker<_Space>
+{
+    typedef typename _Space::State State;
+    typedef typename _Space::Distance Distance;
+
+    // inherit constructor
+    using KDWalker<_Space>::KDWalker;
+
+    typename _Space::Distance maxAxis(int *axis) {
+        return KDWalker<_Space>::maxAxis(axis) * _num / _den;
+    }
+
+    template <typename _Nearest, typename _T, typename _MinDist>
+    void traverse(_Nearest& t, const KDNode<_T>* n, int axis, Distance dist, _MinDist minDist, unsigned depth) {
+        // from a the super-space's perpective, all the distances
+        // returned by this space are scaled by _num/_den.  Thus,
+        // `dist` and `minDist` need to be scaled by _den/_num to
+        // present a consistent distance to the contained space.
+        // Similarly, the callbacks to the `_Nearest` object need to
+        // be scaled.
+        RatioWeightedNearest<_Nearest, _num, _den> wrap(t);
+        KDWalker<_Space>::traverse(
+            wrap,
+            n, axis,
+            dist * _den / _num,
+            minDist * _den / _num,
+            depth);
+    }
+};
+
 // Helper template for computing the max axis in a compound space it
 // tail recurses on incremented space indexes, tracking the best
 // distance and axis as it goes.  Recursion ends once all subspaces
 // are checked, and it returns the best distance found.  The axis is
 // computed as the number of axes before the space + the axis within
 // the subspace.
-template <int _index, typename ... _Spaces>
+template <int _index, template <typename> class _KDAdder, typename ... _Spaces>
 struct CompoundMaxAxis {
     typedef typename CompoundSpace<_Spaces...>::Distance Distance;
     
-    static Distance maxAxis(std::tuple<KDAdder<_Spaces>...>& adders, Distance bestDist, int *bestAxis, int axesBefore) {
+    static Distance maxAxis(std::tuple<_KDAdder<_Spaces>...>& adders, Distance bestDist, int *bestAxis, int axesBefore) {
         typedef typename std::tuple_element<_index, std::tuple<_Spaces...>>::type Subspace;
         int axis;
         Distance dist = std::get<_index>(adders).maxAxis(&axis);
@@ -528,16 +600,16 @@ struct CompoundMaxAxis {
             *bestAxis = axesBefore + axis;
             bestDist = dist;
         }
-        return CompoundMaxAxis<_index+1, _Spaces...>::maxAxis(
+        return CompoundMaxAxis<_index+1, _KDAdder, _Spaces...>::maxAxis(
             adders, bestDist, bestAxis, axesBefore + Subspace::axes);
     }
 };
 // Base case
-template <typename ... _Spaces>
-struct CompoundMaxAxis<sizeof...(_Spaces), _Spaces...> {
+template <template <typename> class _KDAdder, typename ... _Spaces>
+struct CompoundMaxAxis<sizeof...(_Spaces), _KDAdder, _Spaces...> {
     typedef typename CompoundSpace<_Spaces...>::Distance Distance;
 
-    static Distance maxAxis(std::tuple<KDAdder<_Spaces>...>& adders, Distance bestDist, int *bestAxis, int axesBefore) {
+    static Distance maxAxis(std::tuple<_KDAdder<_Spaces>...>& adders, Distance bestDist, int *bestAxis, int axesBefore) {
         return bestDist;
     }
 };
@@ -576,26 +648,67 @@ struct CompoundDoAdd<sizeof...(_Spaces)-1, _Spaces...> {
     }
 };
 
+template <int _index, typename ... _Spaces>
+struct CompoundTraverse {
+    typedef CompoundSpace<_Spaces...> Space;
+    typedef typename Space::Distance Distance;
+    typedef typename std::tuple_element<_index, std::tuple<_Spaces...>>::type Subspace;
+
+    template <typename _Nearest, typename _T, typename _MinDist>
+    static void traverse(
+        std::tuple<KDWalker<_Spaces>...>& walkers,
+        _Nearest& t, const KDNode<_T>* n, int axis, Distance d,
+        _MinDist minDist, unsigned depth)
+    {
+        assert(axis >= 0);
+        if (axis < Subspace::axes)
+            std::get<_index>(walkers).traverse(
+                t, n, axis, static_cast<typename Subspace::Distance>(d), minDist, depth);
+        else
+            CompoundTraverse<_index+1, _Spaces...>::traverse(
+                walkers, t, n, axis - Subspace::axes, d, minDist, depth);
+    }
+};
 
 template <typename ... _Spaces>
-struct KDAdder<CompoundSpace<_Spaces...>> : KDAdderBase<CompoundSpace<_Spaces...>> {
+struct CompoundTraverse<sizeof...(_Spaces)-1, _Spaces...> {
+    typedef CompoundSpace<_Spaces...> Space;
+    typedef typename Space::Distance Distance;
+    static constexpr int N = sizeof...(_Spaces);
+    typedef typename std::tuple_element<N-1, std::tuple<_Spaces...>>::type Subspace;
+
+    template <typename _Nearest, typename _T, typename _MinDist>
+    static void traverse(
+        std::tuple<KDWalker<_Spaces>...>& walkers,
+        _Nearest& t, const KDNode<_T>* n, int axis, Distance d,
+        _MinDist minDist, unsigned depth)
+    {
+        assert(0 <= axis && axis < Subspace::axes);
+        std::get<N-1>(walkers).traverse(
+            t, n, axis, d, minDist, depth);
+    }
+};
+
+
+template <template <typename> class _KDAdder, typename ... _Spaces>
+struct KDCompoundTraversal : KDAdderBase<CompoundSpace<_Spaces...>> {
     typedef CompoundSpace<_Spaces...> Space;
     typedef typename Space::State State;
     typedef typename Space::Distance Distance;
     
-    std::tuple<KDAdder<_Spaces>...> adders_;
+    std::tuple<_KDAdder<_Spaces>...> adders_;
     
     typedef std::make_index_sequence<Space::size> _Indexes;
     
     template <std::size_t ... I>
     static auto make(const State& key, const Space& space, std::index_sequence<I...>) {
         return std::make_tuple(
-            KDAdder<typename std::tuple_element<I, std::tuple<_Spaces...>>::type>(
+            _KDAdder<typename std::tuple_element<I, std::tuple<_Spaces...>>::type>(
                 key.template substate<I>(),
                 space.template subspace<I>())...);
     }
     
-    inline KDAdder(const State& key, const CompoundSpace<_Spaces...>& space)
+    inline KDCompoundTraversal(const State& key, const CompoundSpace<_Spaces...>& space)
         : adders_(make(key, space, _Indexes{}))
     {
     }
@@ -603,7 +716,7 @@ struct KDAdder<CompoundSpace<_Spaces...>> : KDAdderBase<CompoundSpace<_Spaces...
     Distance maxAxis(int *axis) {
         typedef typename std::tuple_element<0, std::tuple<_Spaces...>>::type Subspace0;
         Distance dist = std::get<0>(adders_).maxAxis(axis);
-        return CompoundMaxAxis<1, _Spaces...>::maxAxis(adders_, dist, axis, Subspace0::axes);
+        return CompoundMaxAxis<1, _KDAdder, _Spaces...>::maxAxis(adders_, dist, axis, Subspace0::axes);
     }    
 
     template <typename _RootAdder, typename _T>
@@ -612,6 +725,68 @@ struct KDAdder<CompoundSpace<_Spaces...>> : KDAdderBase<CompoundSpace<_Spaces...
     }
 };
 
+template <typename ... _Spaces>
+struct KDAdder<CompoundSpace<_Spaces...>> : KDCompoundTraversal<detail::KDAdder, _Spaces...> {
+    using KDCompoundTraversal<detail::KDAdder, _Spaces...>::KDCompoundTraversal;
+};
+
+template <typename ... _Spaces>
+struct KDWalker<CompoundSpace<_Spaces...>> : KDCompoundTraversal<detail::KDWalker, _Spaces...> {
+    typedef KDCompoundTraversal<detail::KDWalker, _Spaces...> Base;
+
+    // inherit constructor
+    using KDCompoundTraversal<detail::KDWalker, _Spaces...>::KDCompoundTraversal;
+    
+    using typename Base::Distance;
+
+    template <typename _Nearest, typename _T, typename _MinDist>
+    void traverse(
+        _Nearest& t, const KDNode<_T>* n,
+        int axis, Distance dist,
+        _MinDist minDist, unsigned depth)
+    {
+        CompoundTraverse<0, _Spaces...>::template traverse(
+            this->adders_,
+            t, n, axis, dist, minDist, depth);
+    }
+};
+
+// template <typename ... _Spaces>
+// struct KDWalker<CompoundSpace<_Spaces...>> {
+//     typedef CompoundSpace<_Spaces...> Space;
+//     typedef typename Space::State State;
+//     typedef typename Space::Distance Distance;
+
+//     std::tuple<KDWalker<_Spaces>...> walkers_;
+
+//     typedef std::make_index_sequence<Space::size> _Indexes;
+
+//     KDWalker(const State& key, const Space& space)
+//         : KDWalker(key, space, _Indexes{})
+//     {
+//     }
+
+//     template <std::size_t ... I>
+//     KDWalker(const State& key, const Space& space, std::index_sequence<I...>)
+//         : walkers_(KDWalker<typename std::tuple_element<I, std::tuple<_Spaces...>>::type>(
+//                        key.template substate<I>(),
+//                        space.template substate<I>())...);
+//     {
+//     }
+
+//     Distance maxAxis(int *axis) {
+//         typedef typename std::tuple_element<0, std::tuple<_Spaces...>>::type Subspace0;
+//         Distance dist = std::get<0>(walkers_).maxAxis(axis);
+//         return CompoundMaxAxis<1, KDWalker, _Spaces...>::maxAxis(walkers_, dist, axis, Subspace0::axes);
+//     }
+
+//     template <typename _Nearest, typename _T, typename _MinDist>
+//     void traverse(_Nearest& t, const KDNode<_T> *n, int axis, Distance dist, _MinDist minDist, unsigned depth) {
+//         // CompoundTraverse<0, _Spaces...>::traverse(
+            
+//     }
+    
+// };
 
 template <typename _Space, typename _T, typename _TtoKey>
 struct KDNearest {

@@ -284,12 +284,11 @@ int main(int argc, char *argv[]) {
         -1.4, 4;
     success &= run("BoundedEuclideanSpace<double, 4>", unc::robotics::kdtree::BoundedEuclideanSpace<double, 4>(bounds4d));
 
-#if 0
     Eigen::Array<double, 3, 2> bounds3d(bounds4d.block<3, 2>(0,0));
     success &= run("BoundedSE3Space<double>", unc::robotics::kdtree::BoundedSE3Space<double>(
             unc::robotics::kdtree::SO3Space<double>(),
             unc::robotics::kdtree::BoundedEuclideanSpace<double, 3>(bounds3d)));
-#endif
+
     // KDTreeTests<unc::robotics::kdtree::SO3Space<double>> tests(space);
     // std::mt19937_64 rng;
     // auto q = randomState(space, rng);
