@@ -255,7 +255,8 @@ struct KDTreeTests {
 
         std::cout << std::fixed << std::setprecision(2)
                   << "Linear: " << std::setw(6) << linearMillis/Q << " us/query" << std::endl
-                  << "KDTree: " << std::setw(6) << kdtreeMillis/Q << " us/query" << std::endl;
+                  << "KDTree: " << std::setw(6) << kdtreeMillis/Q << " us/query ("
+                  << kdtreeMillis * 100 / linearMillis << "%)" << std::endl;
 
         EXPECT(kdtreeMillis) < linearMillis;
     }
@@ -272,9 +273,11 @@ bool run(const std::string& spaceName, const _Space& space) {
 }    
 
 int main(int argc, char *argv[]) {
+    using namespace unc::robotics::kdtree;
+    
     bool success = true;
 
-    success &= run("SO3Space<double>", unc::robotics::kdtree::SO3Space<double>());
+    success &= run("SO3Space<double>", SO3Space<double>());
 
     Eigen::Array<double, 4, 2> bounds4d;
     bounds4d <<
@@ -282,12 +285,17 @@ int main(int argc, char *argv[]) {
         -1.2, 2,
         -1.3, 3,
         -1.4, 4;
-    success &= run("BoundedEuclideanSpace<double, 4>", unc::robotics::kdtree::BoundedEuclideanSpace<double, 4>(bounds4d));
+    success &= run("BoundedEuclideanSpace<double, 4>", BoundedEuclideanSpace<double, 4>(bounds4d));
+    Eigen::Array<double, 6, 2> bounds6d;
+    bounds6d.col(0) = -1;
+    bounds6d.col(1) = 1;
+
+    success &= run("BoundedEuclideanSpace<double, 6>", BoundedEuclideanSpace<double, 6>(bounds6d));
 
     Eigen::Array<double, 3, 2> bounds3d(bounds4d.block<3, 2>(0,0));
-    success &= run("BoundedSE3Space<double>", unc::robotics::kdtree::BoundedSE3Space<double>(
-            unc::robotics::kdtree::SO3Space<double>(),
-            unc::robotics::kdtree::BoundedEuclideanSpace<double, 3>(bounds3d)));
+    success &= run("BoundedSE3Space<double>", BoundedSE3Space<double>(
+                       SO3Space<double>(),
+                       BoundedEuclideanSpace<double, 3>(bounds3d)));
 
     // KDTreeTests<unc::robotics::kdtree::SO3Space<double>> tests(space);
     // std::mt19937_64 rng;
