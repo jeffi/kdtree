@@ -1,9 +1,10 @@
+#include <iostream>
 #include "kdtree.hpp"
 #include "random_state.hpp"
 #include <chrono>
 #include <random>
 #include <vector>
-#include <iostream>
+
 
 template <typename _State>
 struct IndexKey {
@@ -50,8 +51,21 @@ int main(int argc, char *argv[]) {
     using namespace unc::robotics::kdtree;
     constexpr int N = 100000;
     constexpr int Q = 10000;
+
+    Eigen::Array<double, 3, 2> bounds;
     
     benchmark("SO3Space<double>", SO3Space<double>(), N, Q);
-    
+    bounds.col(0) = -1;
+    bounds.col(1) = 1;
+    benchmark("SE3Space<double>(-1,1)", BoundedSE3Space<double>(
+                  SO3Space<double>(),
+                  BoundedEuclideanSpace<double, 3>(bounds)), N, Q);
+
+    bounds.col(0) = -100;
+    bounds.col(1) = 100;
+    benchmark("SE3Space<double>(-100,100)", BoundedSE3Space<double>(
+                  SO3Space<double>(),
+                  BoundedEuclideanSpace<double, 3>(bounds)), N, Q);
+
     return 0;
 }

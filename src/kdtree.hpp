@@ -371,12 +371,18 @@ struct KDAdder<SO3Space<_Scalar>> : KDAdderBase<SO3Space<_Scalar>> {
 
     Distance maxAxis(int* axis) {
         *axis = depth_ % 3;
-        // TODO: we only need the std::acos here when distances need
-        // to be relative to other spaces (e.g. when this is part of
-        // an SE(3) KDTree).  Otherwise, we can save a costly acos by
-        // removing it, and the associated cos in doAdd.
-        return std::acos(std::abs(bounds_[0].col(*axis).matrix().dot(
-                                      bounds_[1].col(*axis).matrix())));
+#if 0
+        // Computes the distance between the min and max bounds.  This
+        // follows the standard distance function of acos(dot(x,y)).
+        return std::acos(
+            std::abs(bounds_[0].col(*axis).matrix().dot(
+                         bounds_[1].col(*axis).matrix())));
+#else
+        // Since we're doing midpoint splits, the distance along an
+        // axis halves every time it revisits an axis.  We can save on
+        // the costly acos here.
+        return (depth_ <= 3) ? M_PI_2 :  M_PI/(1 << (depth_ / 3));
+#endif
     }
 
     template <typename _RootAdder, typename _T>
@@ -392,9 +398,14 @@ struct KDAdder<SO3Space<_Scalar>> : KDAdderBase<SO3Space<_Scalar>> {
                 return adder(c, n, depth+1); // tail recur
             break;
         default:
-            // See TODO in maxAxis... here is the cos(d) that we need
-            // to remove if we remove the acos in maxAxis.
+#if 0
             Scalar s0 = std::sqrt(static_cast<Scalar>(0.5) / (std::cos(d) + 1));
+#else
+            Scalar dq = std::abs(bounds_[0].col(axis).matrix().dot(
+                                     bounds_[1].col(axis).matrix()));
+            Scalar s0 = std::sqrt(static_cast<Scalar>(0.5) / (dq + 1));
+#endif
+
             Eigen::Matrix<Scalar, 2, 1> mp =
                 (bounds_[0].col(axis) + bounds_[1].col(axis)) * s0;
             Scalar dot = mp[0]*key_.coeffs()[vol_] + mp[1]*key_.coeffs()[(vol_ + axis + 1) % 4];
@@ -414,6 +425,16 @@ struct KDAdder<SO3Space<_Scalar>> : KDAdderBase<SO3Space<_Scalar>> {
         return depth;        
     }
 };
+
+template <typename _Scalar>
+inline bool asinXlessThanY(_Scalar x, _Scalar y) {
+    constexpr _Scalar PI0_5 = 1.5707963267948966192313216916397514420985846996875529L;
+    constexpr _Scalar ASIN_BOUNDED_MAX = 0.33067408756426286;
+        
+    return x <= y // sufficient
+        || (x * PI0_5 - ASIN_BOUNDED_MAX <= y // necessary
+            && std::asin(x) <= y); // exact
+}
 
 template <typename _Scalar>
 struct KDWalker<SO3Space<_Scalar>> : KDAdder<SO3Space<_Scalar>> {
@@ -488,6 +509,7 @@ struct KDWalker<SO3Space<_Scalar>> : KDAdder<SO3Space<_Scalar>> {
                     bounds_[childNo](0, axis) * key_.coeffs()[tVol_] +
                     bounds_[childNo](1, axis) * key_.coeffs()[(tVol_ + axis + 1) % 4];
                 df = std::min(std::abs(dot), std::abs(df));
+                //if (asinXlessThanY(df, t.minDist())) {
                 if (std::asin(df) < t.minDist()) {
                     Eigen::Matrix<Scalar, 2, 1> tmp(bounds_[childNo].col(axis));
                     bounds_[childNo].col(axis) = mp;
