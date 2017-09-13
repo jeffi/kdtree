@@ -94,6 +94,11 @@ public:
     }
 
     template <std::size_t _index>
+    typename std::tuple_element<_index, std::tuple<_States...>>::type& substate() {
+        return std::get<_index>(states_);
+    }
+
+    template <std::size_t _index>
     const typename std::tuple_element<_index, std::tuple<_States...>>::type& substate() const {
         return std::get<_index>(states_);
     }
