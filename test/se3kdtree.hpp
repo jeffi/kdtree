@@ -21,8 +21,17 @@ public:
 private:
     struct Node {
         _T value_;
+#ifdef KD_DEBUG
+        int space_;
+        int axis_;
+        Scalar dist_;
+#endif
         std::array<Node*, 2> children_;
-        Node(const _T& value) : value_(value), children_{{nullptr, nullptr}} {}
+        Node(const _T& value) : value_(value), children_{{nullptr, nullptr}} {
+#ifdef KD_DEBUG
+            space_ = -1;
+#endif
+        }
         ~Node() {
             for (int i=0 ; i<2 ; ++i)
                 if (children_[i])
@@ -97,10 +106,20 @@ private:
             int rvAxis;
             Scalar rvDist = (rvBounds_.col(1) - rvBounds_.col(0)).maxCoeff(&rvAxis);
             int soAxis = soDepth_ % 3;
-            Scalar soDist = M_PI/(1 << (soDepth_ / 3));
+            Scalar soDist = M_PI/(2 << (soDepth_ / 3));
 
             if (rvDist > soDist) {
                 // rv split
+#ifdef KD_DEBUG
+                if (n->space_ == -1) {
+                    assert(n->children_[0] == nullptr);
+                    assert(n->children_[1] == nullptr);
+                } else {
+                    assert(n->space_ == 0);
+                    assert(n->axis_ == rvAxis);
+                    assert(n->dist_ == rvDist);
+                }
+#endif
                 Scalar split = (rvBounds_(rvAxis, 0) + rvBounds_(rvAxis, 1)) * static_cast<Scalar>(0.5);
                 Scalar delta = (split - key_.template substate<1>()[rvAxis]); 
                 int childNo = delta < 0;
@@ -125,6 +144,16 @@ private:
                 }
             } else {
                 // so split
+#ifdef KD_DEBUG
+                if (n->space_ == -1) {
+                    assert(n->children_[0] == nullptr);
+                    assert(n->children_[1] == nullptr);
+                } else {
+                    assert(n->space_ == 1);
+                    assert(n->axis_ == soAxis);
+                    assert(n->dist_ == soDist);
+                }
+#endif
                 Scalar dq = std::abs(soBounds_[0].col(soAxis).matrix().dot(
                                          soBounds_[1].col(soAxis).matrix()));
                 Scalar s0 = std::sqrt(static_cast<Scalar>(0.5) / (dq + 1));
@@ -135,7 +164,7 @@ private:
                 ++soDepth_;
                 int childNo = (dot > 0);
                 if (const Node* c = n->children_[childNo]) {
-                    Eigen::Matrix<Scalar, 2, 1> tmp(soBounds_[childNo].col(soAxis));
+                    Eigen::Matrix<Scalar, 2, 1> tmp = soBounds_[1-childNo].col(soAxis);
                     soBounds_[1-childNo].col(soAxis) = mp;
                     traverse(c);
                     soBounds_[1-childNo].col(soAxis) = tmp;
@@ -148,7 +177,7 @@ private:
                     df = std::min(std::abs(dot), std::abs(df));
                     //if (asinXlessThanY(df, t.minDist())) {
                     if (std::asin(df) <= dist_) {
-                        Eigen::Matrix<Scalar, 2, 1> tmp(soBounds_[childNo].col(soAxis));
+                        Eigen::Matrix<Scalar, 2, 1> tmp = soBounds_[childNo].col(soAxis);
                         soBounds_[childNo].col(soAxis) = mp;
                         traverse(c);
                         soBounds_[childNo].col(soAxis) = tmp;
@@ -220,19 +249,30 @@ public:
         int soDepth = 0;
         int childNo;
         unsigned depth = 2;
+
+        // std::cout << M_PI/(2 << (soDepth / 3)) << std::endl;
         
         for ( ; ; p = c, ++depth) {
             int rvAxis;
             Scalar rvDist = (rvBounds.col(1) - rvBounds.col(0)).maxCoeff(&rvAxis);
             int soAxis = soDepth % 3;
-            Scalar soDist = M_PI/(1 << (soDepth / 3));
+            Scalar soDist = M_PI/(2 << (soDepth / 3));
 
+// #ifdef KD_DEBUG
+//             if (size_ == 98422) std::cout << depth << ": " << rvDist << ", " << soDist << std::endl;
+// #endif
             if (rvDist > soDist) {
                 // rv split
                 Scalar split = (rvBounds(rvAxis, 0) + rvBounds(rvAxis, 1)) * static_cast<Scalar>(0.5);
                 childNo = (split - key.template substate<1>()[rvAxis]) < 0;
-                if ((c = p->children_[childNo]) == nullptr)
+                if ((c = p->children_[childNo]) == nullptr) {
+#ifdef KD_DEBUG
+                    p->space_ = 0;
+                    p->axis_ = rvAxis;
+                    p->dist_ = rvDist;
+#endif
                     break;
+                }
 
                 rvBounds(rvAxis, 1-childNo) = split;
             } else {
@@ -244,8 +284,14 @@ public:
                 Eigen::Matrix<Scalar, 2, 1> mp =
                     (soBounds[0].col(soAxis) + soBounds[1].col(soAxis)) * s0;
                 Scalar dot = mp[0]*soKey.coeffs()[vol] + mp[1]*soKey.coeffs()[(vol + soAxis + 1)%4];
-                if ((c = p->children_[childNo = (dot > 0)]) == nullptr)
+                if ((c = p->children_[childNo = (dot > 0)]) == nullptr) {
+#ifdef KD_DEBUG
+                    p->space_ = 1;
+                    p->axis_ = soAxis;
+                    p->dist_ = soDist;
+#endif
                     break;
+                }
                 
                 soBounds[1-childNo].col(soAxis) = mp;
                 ++soDepth;

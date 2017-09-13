@@ -60,12 +60,14 @@ void benchmarkSE3(const std::string& name, const Eigen::Array<_Scalar, 3, 2>& bo
         (BoundedEuclideanSpace<_Scalar, 3>(bounds)));
     
     std::vector<State> nodes;
+    std::vector<int> linear;
     nodes.reserve(N);
     SE3KDTree<int, _Scalar, IndexKey<State>> tree(IndexKey<State>(nodes), bounds);
     std::mt19937_64 rng;
     for (int i=0 ; i<N ; ++i) {
         nodes.push_back(randomState(space, rng));
         tree.add(i);
+        linear.push_back(i);
     }
 
     std::vector<State> queries;
@@ -83,10 +85,29 @@ void benchmarkSE3(const std::string& name, const Eigen::Array<_Scalar, 3, 2>& bo
         results.push_back(*tree.nearest(queries[i]));
     auto end = Clock::now();
 
+    for (int i=0 ; i<Q ; ++i) {
+        const State& q = queries[i];
+        int min = *std::min_element(linear.begin(), linear.end(), [&] (int a, int b) {
+            return space.distance(nodes[a], q) < space.distance(nodes[b], q);
+        });
+        if (min != results[i])
+            std::cout << "mismatch: "
+                      << space.distance(nodes[min], q)
+                      << " vs "
+                      << space.distance(nodes[results[i]], q)
+                      << std::endl;
+    }
+    auto linEnd = Clock::now();
+    
     double elapsed = std::chrono::duration<double, std::micro>(end - start).count();
+    double linElapsed = std::chrono::duration<double, std::micro>(linEnd - end).count();
 
     std::cout << name << " (depth=" << tree.depth() << "): "
               << elapsed/Q << " us/query (elapsed " << elapsed/1000 << " ms)" << std::endl;
+    std::cout << "linear check: "
+              << linElapsed/Q << " us/query (elapsed " << linElapsed/1000 << " ms)" << std::endl;
+
+
 }
 
 
