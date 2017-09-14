@@ -91,10 +91,30 @@ void benchmarkSE3(const std::string& name, const Eigen::Array<_Scalar, 3, 2>& bo
             return space.distance(nodes[a], q) < space.distance(nodes[b], q);
         });
         if (min != results[i])
-            std::cout << "mismatch: "
+            std::cout << "mismatch at " << i << ": "
                       << space.distance(nodes[min], q)
                       << " vs "
                       << space.distance(nodes[results[i]], q)
+                      << "\n  q: " << q.template substate<0>().coeffs().transpose()
+            
+                      << "\n  e: " << nodes[min].template substate<0>().coeffs().transpose()
+                      << "\n   "
+                      << ": " << std::atan2(nodes[min].template substate<0>().coeffs()[1],
+                                            nodes[min].template substate<0>().coeffs()[0])
+                      << ", " << std::atan2(nodes[min].template substate<0>().coeffs()[2],
+                                            nodes[min].template substate<0>().coeffs()[0])
+                      << ", " << std::atan2(nodes[min].template substate<0>().coeffs()[3],
+                                            nodes[min].template substate<0>().coeffs()[0])
+            
+                      << "\n  a: " << nodes[results[i]].template substate<0>().coeffs().transpose()
+                      << "\n   "
+                      << ": " << std::atan2(nodes[results[i]].template substate<0>().coeffs()[1],
+                                            nodes[results[i]].template substate<0>().coeffs()[0])
+                      << ", " << std::atan2(nodes[results[i]].template substate<0>().coeffs()[2],
+                                            nodes[results[i]].template substate<0>().coeffs()[0])
+                      << ", " << std::atan2(nodes[results[i]].template substate<0>().coeffs()[3],
+                                            nodes[results[i]].template substate<0>().coeffs()[0])
+
                       << std::endl;
     }
     auto linEnd = Clock::now();
@@ -122,32 +142,32 @@ int main(int argc, char *argv[]) {
 
     bounds.col(0) = -0.01;
     bounds.col(1) = 0.01;
-    benchmarkSE3<double>("SE3KDTree<double>(-0.01, 0.01)", bounds, N, 1000);
     benchmark("SE3Space<double>(-0.01,0.01)", BoundedSE3Space<double>(
                   SO3Space<double>(),
                   BoundedEuclideanSpace<double, 3>(bounds)), N, 1000);
+    benchmarkSE3<double>("SE3KDTree<double>(-0.01, 0.01)", bounds, N, 1000);
 
     bounds.col(0) = -1;
     bounds.col(1) = 1;
-    benchmarkSE3<double>("SE3KDTree<double>(-1, 1)", bounds, N, 100);
     benchmark("SE3Space<double>(-1,1)", BoundedSE3Space<double>(
                   SO3Space<double>(),
                   BoundedEuclideanSpace<double, 3>(bounds)), N, 100);
+    benchmarkSE3<double>("SE3KDTree<double>(-1, 1)", bounds, N, 100);
 
     bounds.col(0) = -100;
     bounds.col(1) = 100;
-    benchmarkSE3<double>("SE3KDTree<double>(-100, 100)", bounds, N, 1000);
     benchmark("SE3Space<double>(-100,100)", BoundedSE3Space<double>(
                   SO3Space<double>(),
                   BoundedEuclideanSpace<double, 3>(bounds)), N, 1000);
+    benchmarkSE3<double>("SE3KDTree<double>(-100, 100)", bounds, N, 1000);
 
 
     bounds.col(0) = -1e6;
     bounds.col(1) = 1e6;
-    benchmarkSE3<double>("SE3KDTree<double>(-1e6, 1e6)", bounds, N, 1000);
     benchmark("SE3Space<double>(-1e6,1e6)", BoundedSE3Space<double>(
                   SO3Space<double>(),
                   BoundedEuclideanSpace<double, 3>(bounds)), N, 1000);
+    benchmarkSE3<double>("SE3KDTree<double>(-1e6, 1e6)", bounds, N, 1000);
 
     return 0;
 }
