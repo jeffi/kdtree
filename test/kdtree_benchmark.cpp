@@ -1,6 +1,6 @@
 #include <iostream>
 #include "kdtree.hpp"
-#include "se3kdtree.hpp"
+#include "se3kdtree2.hpp"
 #include "random_state.hpp"
 #include <chrono>
 #include <random>
@@ -48,24 +48,114 @@ void benchmark(const std::string& name, const Space& space, int N, int Q) {
               << elapsed/Q << " us/query (elapsed " << elapsed/1000 << " ms)" << std::endl;
 }
 
+// template <typename _Scalar>
+// void benchmarkSE3(const std::string& name, const Eigen::Array<_Scalar, 3, 2>& bounds, int N, int Q) {
+//     using namespace unc::robotics::kdtree;
+    
+//     typedef BoundedSE3Space<_Scalar> Space;
+//     typedef typename Space::State State;
+
+//     Space space(
+//         (SO3Space<_Scalar>()),
+//         (BoundedEuclideanSpace<_Scalar, 3>(bounds)));
+    
+//     std::vector<State> nodes;
+//     std::vector<int> linear;
+//     nodes.reserve(N);
+//     SE3KDTree<int, _Scalar, IndexKey<State>> tree(IndexKey<State>(nodes), bounds);
+//     std::mt19937_64 rng;
+//     for (int i=0 ; i<N ; ++i) {
+//         nodes.push_back(randomState(space, rng));
+//         tree.add(i);
+//         linear.push_back(i);
+//     }
+
+//     std::vector<State> queries;
+//     queries.reserve(N);
+//     for (int i=0 ; i<Q ; ++i)
+//         queries.push_back(randomState(space, rng));
+
+
+//     typedef std::chrono::high_resolution_clock Clock;
+//     std::vector<int> results;
+//     results.reserve(Q);
+
+//     auto start = Clock::now();
+//     for (int i=0 ; i<Q ; ++i)
+//         results.push_back(*tree.nearest(queries[i]));
+//     auto end = Clock::now();
+
+//     for (int i=0 ; i<Q ; ++i) {
+//         const State& q = queries[i];
+//         int min = *std::min_element(linear.begin(), linear.end(), [&] (int a, int b) {
+//             return space.distance(nodes[a], q) < space.distance(nodes[b], q);
+//         });
+//         if (min != results[i])
+//             std::cout << "mismatch at " << i << ": "
+//                       << space.distance(nodes[min], q)
+//                       << " vs "
+//                       << space.distance(nodes[results[i]], q)
+//                       << "\n  q: " << q.template substate<0>().coeffs().transpose()
+            
+//                       << "\n  e: " << nodes[min].template substate<0>().coeffs().transpose()
+//                       << "\n   "
+//                       << ": " << std::atan2(nodes[min].template substate<0>().coeffs()[1],
+//                                             nodes[min].template substate<0>().coeffs()[0])
+//                       << ", " << std::atan2(nodes[min].template substate<0>().coeffs()[2],
+//                                             nodes[min].template substate<0>().coeffs()[0])
+//                       << ", " << std::atan2(nodes[min].template substate<0>().coeffs()[3],
+//                                             nodes[min].template substate<0>().coeffs()[0])
+            
+//                       << "\n  a: " << nodes[results[i]].template substate<0>().coeffs().transpose()
+//                       << "\n   "
+//                       << ": " << std::atan2(nodes[results[i]].template substate<0>().coeffs()[1],
+//                                             nodes[results[i]].template substate<0>().coeffs()[0])
+//                       << ", " << std::atan2(nodes[results[i]].template substate<0>().coeffs()[2],
+//                                             nodes[results[i]].template substate<0>().coeffs()[0])
+//                       << ", " << std::atan2(nodes[results[i]].template substate<0>().coeffs()[3],
+//                                             nodes[results[i]].template substate<0>().coeffs()[0])
+
+//                       << std::endl;
+//     }
+//     auto linEnd = Clock::now();
+    
+//     double elapsed = std::chrono::duration<double, std::micro>(end - start).count();
+//     double linElapsed = std::chrono::duration<double, std::micro>(linEnd - end).count();
+
+//     std::cout << name << " (depth=" << tree.depth() << "): "
+//               << elapsed/Q << " us/query (elapsed " << elapsed/1000 << " ms)" << std::endl;
+//     std::cout << "linear check: "
+//               << linElapsed/Q << " us/query (elapsed " << linElapsed/1000 << " ms)" << std::endl;
+
+
+// }
+
+template <typename _Scalar>
+_Scalar distance(
+    const std::tuple<Eigen::Quaternion<_Scalar>, Eigen::Matrix<_Scalar, 3, 1>>& a,
+    const std::tuple<Eigen::Quaternion<_Scalar>, Eigen::Matrix<_Scalar, 3, 1>>& b)
+{
+    return std::acos(std::abs(std::get<0>(a).coeffs().matrix().dot(
+                                  std::get<0>(b).coeffs().matrix())))
+        + (std::get<1>(a) - std::get<1>(b)).norm();
+}
+
 template <typename _Scalar>
 void benchmarkSE3(const std::string& name, const Eigen::Array<_Scalar, 3, 2>& bounds, int N, int Q) {
     using namespace unc::robotics::kdtree;
     
-    typedef BoundedSE3Space<_Scalar> Space;
-    typedef typename Space::State State;
+    // typedef BoundedSE3Space<_Scalar> Space;
+    // typedef typename Space::State State;
+    typedef std::tuple<Eigen::Quaternion<_Scalar>,
+                       Eigen::Matrix<_Scalar, 3, 1>> State;
 
-    Space space(
-        (SO3Space<_Scalar>()),
-        (BoundedEuclideanSpace<_Scalar, 3>(bounds)));
-    
     std::vector<State> nodes;
     std::vector<int> linear;
     nodes.reserve(N);
     SE3KDTree<int, _Scalar, IndexKey<State>> tree(IndexKey<State>(nodes), bounds);
     std::mt19937_64 rng;
     for (int i=0 ; i<N ; ++i) {
-        nodes.push_back(randomState(space, rng));
+        nodes.push_back(randomState(bounds, rng));
         tree.add(i);
         linear.push_back(i);
     }
@@ -73,57 +163,42 @@ void benchmarkSE3(const std::string& name, const Eigen::Array<_Scalar, 3, 2>& bo
     std::vector<State> queries;
     queries.reserve(N);
     for (int i=0 ; i<Q ; ++i)
-        queries.push_back(randomState(space, rng));
-
+        queries.push_back(randomState(bounds, rng));
 
     typedef std::chrono::high_resolution_clock Clock;
     std::vector<int> results;
     results.reserve(Q);
 
-    auto start = Clock::now();
-    for (int i=0 ; i<Q ; ++i)
-        results.push_back(*tree.nearest(queries[i]));
-    auto end = Clock::now();
-
-    for (int i=0 ; i<Q ; ++i) {
+    using namespace std::literals::chrono_literals;
+    
+    Clock::duration maxTime = 1s;
+    Clock::duration kdElapsed;
+    
+    Clock::time_point start = Clock::now();
+    int nq;
+    for (nq=0 ; nq<Q && (kdElapsed = (Clock::now() - start)) < maxTime ; ++nq)
+        results.push_back(*tree.nearest(queries[nq]));
+    
+    auto linStart = Clock::now();
+    for (int i=0 ; i<nq ; ++i) {
         const State& q = queries[i];
         int min = *std::min_element(linear.begin(), linear.end(), [&] (int a, int b) {
-            return space.distance(nodes[a], q) < space.distance(nodes[b], q);
+            return distance(nodes[a], q) < distance(nodes[b], q);
         });
         if (min != results[i])
             std::cout << "mismatch at " << i << ": "
-                      << space.distance(nodes[min], q)
+                      << distance(nodes[min], q)
                       << " vs "
-                      << space.distance(nodes[results[i]], q)
-                      << "\n  q: " << q.template substate<0>().coeffs().transpose()
-            
-                      << "\n  e: " << nodes[min].template substate<0>().coeffs().transpose()
-                      << "\n   "
-                      << ": " << std::atan2(nodes[min].template substate<0>().coeffs()[1],
-                                            nodes[min].template substate<0>().coeffs()[0])
-                      << ", " << std::atan2(nodes[min].template substate<0>().coeffs()[2],
-                                            nodes[min].template substate<0>().coeffs()[0])
-                      << ", " << std::atan2(nodes[min].template substate<0>().coeffs()[3],
-                                            nodes[min].template substate<0>().coeffs()[0])
-            
-                      << "\n  a: " << nodes[results[i]].template substate<0>().coeffs().transpose()
-                      << "\n   "
-                      << ": " << std::atan2(nodes[results[i]].template substate<0>().coeffs()[1],
-                                            nodes[results[i]].template substate<0>().coeffs()[0])
-                      << ", " << std::atan2(nodes[results[i]].template substate<0>().coeffs()[2],
-                                            nodes[results[i]].template substate<0>().coeffs()[0])
-                      << ", " << std::atan2(nodes[results[i]].template substate<0>().coeffs()[3],
-                                            nodes[results[i]].template substate<0>().coeffs()[0])
-
+                      << distance(nodes[results[i]], q)
                       << std::endl;
     }
     auto linEnd = Clock::now();
     
-    double elapsed = std::chrono::duration<double, std::micro>(end - start).count();
-    double linElapsed = std::chrono::duration<double, std::micro>(linEnd - end).count();
+    double elapsed = std::chrono::duration<double, std::micro>(kdElapsed).count();
+    double linElapsed = std::chrono::duration<double, std::micro>(linEnd - linStart).count();
 
     std::cout << name << " (depth=" << tree.depth() << "): "
-              << elapsed/Q << " us/query (elapsed " << elapsed/1000 << " ms)" << std::endl;
+              << elapsed/nq << " us/query (q=" << nq << ", elapsed " << elapsed/1000 << " ms)" << std::endl;
     std::cout << "linear check: "
               << linElapsed/Q << " us/query (elapsed " << linElapsed/1000 << " ms)" << std::endl;
 

@@ -148,6 +148,8 @@ private:
         Eigen::Array<Scalar, 2, 3> soAngles_;
         Eigen::Array<Scalar, 3, 1> soKeyVolAngles_;
         Eigen::Array<Scalar, 3, 1> soKeyVolSplits_;
+        Scalar rvMinDist_;
+        Scalar soMinDist_;
         int soDepth_;
         int vol_;
 
@@ -158,6 +160,8 @@ private:
             : tree_(tree),
               key_(key),
               rvBounds_(tree.bounds_),
+              rvMinDist_(0),
+              soMinDist_(0),
               soDepth_(0),
               dist_(std::numeric_limits<Scalar>::infinity()),
               nearest_(nullptr)
@@ -194,7 +198,14 @@ private:
         }
 
         Scalar faceDists(int axis) const {
+            // Scalar minDist = std::numeric_limits<Scalar>::infinity();
+            // Eigen::Array<Scalar, 3, 1> face = soKeyVolAngles_;
+            // for (int i=0 ; i<2 ; ++i) {
+            //     face[i] = soAngles_(i, axis);
+            //     minDist = std::min(minDist, detail::dist(vol_, face, key_.template substate<0>()));
+            // }
             return std::min(faceDist(axis, 0), faceDist(axis, 1));
+            // return minDist;
         }
 
         Scalar edgeDists(int a0, int a1, int a2) const {
@@ -225,6 +236,11 @@ private:
                     corner[1] = soAngles_(j, 1);
                     for (int k=0 ; k<2 ; ++k) {
                         corner[2] = soAngles_(k, 2);
+                        // std::cout << "  " << i << ", " << j << ", " << k
+                        //           << " | "
+                        //           << corner.transpose()
+                        //           << ": "
+                        //           << detail::dist(vol_, corner, key_.template substate<0>()) << std::endl;
                         minDist = std::min(
                             minDist,
                             detail::dist(vol_, corner, key_.template substate<0>()));
@@ -236,67 +252,148 @@ private:
             return minDist;
         }
 
-        Scalar minSplitDist() const {
-            Scalar soMinDist;
-
+        Scalar soMinSplitDist() const {
             int inRangeBits = 0;
             for (int i=0 ; i<3 ; ++i)
                 if (inRange(i))
                     inRangeBits |= (1 << i);
+
+            Eigen::Array<Scalar, 2, 3> boxDots;
+            int inRangeBits2 = 0;
             
-            switch (inRangeBits) {
+            for (int axis=0 ; axis<3 ; ++axis) {
+                Eigen::Matrix<Scalar, 4, 1> n;
+                n.setZero();
+                for (int bound=0 ; bound<2 ; ++bound) {
+                    Scalar a = soAngles_(bound, axis);
+                    n[vol_] = (bound*2-1)*std::sin(a);
+                    n[(vol_ + axis + 1) % 4] = (1-bound*2) * std::cos(a);
+                    boxDots(bound, axis) = n.dot(key_.template substate<0>().coeffs().matrix());
+                }
+
+                if ((boxDots.col(axis) >= 0).all())
+                    inRangeBits2 |= (1 << axis);
+            }
+
+            // std::cout << boxDots << std::endl;
+            if (inRangeBits2 != inRangeBits) {
+            std::cout << "Ranges: " << inRangeBits << ", " << inRangeBits2 << " | " << vol_ << " | "
+                      << soKeyVolAngles_.transpose() << " | "
+                      << key_.template substate<0>().coeffs().transpose()
+                      << std::endl;
+            }
+
+            // assert(inRangeBits2 == inRangeBits);
+
+            switch (inRangeBits2) {
             case 0b111: // all in range
-                soMinDist = 0;
-                break;
+                return 0;
             case 0b011: // x & y in range: check 2 z faces
-                soMinDist = faceDists(2);
-                break;
+                return faceDists(2);
             case 0b101: // x & z in range: check 2 y faces
-                soMinDist = faceDists(1);
-                break;
+                return faceDists(1);
             case 0b110: // y & z in range: check 2 x faces
-                soMinDist = faceDists(0);
-                break;
+                return faceDists(0);
             case 0b001: // x in range: check 4 yz edges
-                soMinDist = edgeDists(0, 1, 2);
-                break;
+                return edgeDists(0, 1, 2);
             case 0b010: // y in range: check 4 xz edges
-                soMinDist = edgeDists(1, 2, 0);
-                break;
+                return edgeDists(1, 2, 0);
             case 0b100: // z in range: check 4 xy edges
-                soMinDist = edgeDists(2, 0, 1);
-                break;
+                return edgeDists(2, 0, 1);
             case 0b000: // non in range: check 8 corners
-                soMinDist = cornerDists();
-                break;
+                return cornerDists();
             default:
                 abort();
             }
-            
-            // Scalar soMinDist = std::numeric_limits<Scalar>::infinity();
-            // for (int ax = 0 ; ax < 3 ; ++ax) {
-
-                
-            //     if (inRange((ax+1) % 3)) {
-            //         if (inRange((ax+2) % 3)) {
-            //             // check face +/- ax
-            //         } else {
-            //             // check edge +/-
-            //         }
-            //     }
-            //     soMinDist = std::min(
-            //         soMinDist,
-            //         detail::dist(details::volAnglesToQuaternion(vol_, soAngles_.row(0)), soKey));
-
-            //     soMinDist = std::min(
-            //         soMinDist,
-            //         detail::dist(details::volAnglesToQuaternion(vol_, soAngles_.row(1)), soKey));
-            // }
-            
-            return std::sqrt(rvDeltas_.sum()) + soMinDist;
-                // detail::dist(detail::volAnglesToQuaternion(vol_, soKeyVolSplits_),
-                //              key_.template substate<0>());
+            // detail::dist(detail::volAnglesToQuaternion(vol_, soKeyVolSplits_),
+            //              key_.template substate<0>());
         }
+
+        Scalar soFaceDist(int i, int j, int k) {
+            if (!inRange(i))
+                return 0;
+            
+            const auto &q = key_.template substate<0>();
+            
+            for (int bi=0 ; bi<2; ++bi) {
+                Eigen::Quaternion<Scalar> n = volAnglesToQuaternion(vol_, soAngles_(bi, i))
+                Scalar cosTheta = n.coeffs().matrix().dot(q.coeffs().matrix());
+                Eigen::Matrix<Scalar, 4, 1> p = q.coeffs().matrix() - n.coeffs().matrix() * cosTheta;
+
+                bool inBounds = true;
+                if (p.dot(volAnglesToQuaternion(vol_, soAngles_(0, j))) < 0 ||
+                    p.dot(volAnglesToQuaternion(vol_, soAngles_(1, j))) > 0)
+                {
+                    // use edge i, j distance
+                    inBounds = false;
+                }
+                if (p.dot(volAnglesToQuaternion(vol_, soAngles_(0, k))) < 0 ||
+                    p.dot(volAnglesToQuaternion(vol_, soAngles_(1, k))) > 0)
+                {
+                    // use edge i, k distance
+                    inBounds = false;
+                }
+                if (inBounds) {
+                    // use face distance
+                }
+            }
+        }
+
+        Scalar soMinSplitDist2() {
+            soFaceDist(0, 1, 2);
+            soFaceDist(1, 2, 0);
+            soFaceDist(2, 0, 1);
+        }
+
+        // Scalar soMinSplitDist2() const {
+        //     Eigen::Array<Scalar, 2, 3> boxDots;
+        //     int inRangeBits = 0;
+            
+        //     for (int axis=0 ; axis<3 ; ++axis) {
+        //         Eigen::Matrix<Scalar, 4, 1> n;
+        //         n.setZero();
+        //         for (int bound=0 ; bound<2 ; ++bound) {
+        //             Scalar a = soAngles_(bounds, axis);
+        //             n[vol_] = std::sin(a);
+        //             n[(vol_ + axis + 1) % 4] = std::cos(a);
+        //             boxDots(bounds, axis) = n.dot(key_.template substate<0>().coeffs().matrix());
+        //         }
+
+        //         if ((boxDists.col(axis) >= 0).all())
+        //             inRange |= (1 << axis);
+        //     }
+
+        //     Scalar dist = std::numeric_limits<Scalar>::infinity();
+            
+        //     switch (inRangeBits) {
+        //     case 0b111: // all in range
+        //         return 0;
+        //     case 0b011: // x&y in range: check against both z bounds
+        //         for (int i=0 ; i<2 ; ++i)
+        //             if (boxDots(i, 2) < 0)
+        //                 dist = std::min(dist, -std::asin(boxDots(i, 2)));
+        //         break;
+        //     case 0b101: // x&z in range: check against both y bounds
+        //         for (int i=0 ; i<2 ; ++i)
+        //             if (boxDots(i, 1) < 0)
+        //                 dist = std::min(dist, -std::asin(boxDots(i, 1)));
+        //         break;
+        //     case 0b110: // y&z in range: check against both z bounds
+        //         for (int i=0 ; i<2 ; ++i)
+        //             if (boxDots(i, 0) < 0)
+        //                 dist = std::min(dist, -std::asin(boxDots(i, 0)));
+        //         break;
+        //     case 0b001: // x in range, check against y&z bounds
+
+        //     case 0b010: // y in range, check against x&z bounds
+
+        //     case 0b100: // z in range, check against x&y bounds
+
+        //     case 0b000: // none in range
+        //     }
+
+        //     return dist;
+        // }
 
         void traverse(const Node* n) {
             int rvAxis;
@@ -333,15 +430,21 @@ private:
                 if (const Node* c = n->children_[1-childNo]) {
                     delta *= delta;
                     Scalar oldDelta = rvDeltas_[rvAxis];
+                    Scalar oldMinDist = rvMinDist_;
                     rvDeltas_[rvAxis] = delta;
+                    rvMinDist_ = std::sqrt(rvDeltas_.sum());
                     // if (std::sqrt(rvDeltas_.sum()) <= dist_) {
-                    if (minSplitDist() <= dist_) {
+                    assert(std::sqrt(rvDeltas_.sum()) == rvMinDist_);
+                    std::cout << soMinSplitDist() << " ? " << soMinDist_ << std::endl;
+                    assert(soMinSplitDist() == soMinDist_);
+                    if (rvMinDist_ + soMinDist_ <= dist_) {
                         Scalar tmp = rvBounds_(rvAxis, childNo);
                         rvBounds_(rvAxis, childNo) = split;
                         traverse(c);
                         rvBounds_(rvAxis, childNo) = tmp;                        
                     }
                     rvDeltas_[rvAxis] = oldDelta;
+                    rvMinDist_ = oldMinDist;
                 }
             } else {
                 // so split
@@ -417,7 +520,11 @@ private:
                     //          <= dist_) {
                     Scalar tmpAngle = soAngles_(childNo, soAxis);
                     soAngles_(childNo, soAxis) = splitAngle;
-                    if (minSplitDist() <= dist_) {
+                    Scalar oldMinDist = soMinDist_;
+                    soMinDist_ = soMinSplitDist();
+                    assert(std::sqrt(rvDeltas_.sum()) == rvMinDist_);
+                    assert(soMinSplitDist() == soMinDist_);
+                    if (rvMinDist_ + soMinDist_ <= dist_) {
                         // if (std::asin(df) <= dist_) {
                         Eigen::Matrix<Scalar, 2, 1> tmp = soBounds_[childNo].col(soAxis);
                         soBounds_[childNo].col(soAxis) = mp;
@@ -426,6 +533,7 @@ private:
                     }
                     soAngles_(childNo, soAxis) = tmpAngle;
                     soKeyVolSplits_[soAxis] = tmpSo;
+                    soMinDist_ = oldMinDist;
                 }
                 --soDepth_;
             }
@@ -441,6 +549,10 @@ private:
                     
                     soKeyVolAngles_ = detail::quaternionToVolAngles(vol_, key_.template substate<0>());
                     soKeyVolSplits_ = soKeyVolAngles_;
+                    soMinDist_ = soMinSplitDist(); // TODO: this is always 0 when i == 0
+
+                    // std::cout << "== " << i << ": " << soMinDist_ << " ==" << std::endl;
+                    
                     // std::cout << soKeyVolAngles_.transpose() << std::endl;
 
                     // std::cout << mainVol << ": " << i << std::endl;
