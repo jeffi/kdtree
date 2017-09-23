@@ -82,9 +82,6 @@ private:
         std::array<Eigen::Array<Scalar, 2, 3>, 2> soBounds_;
         int soDepth_;
         int vol_;
-
-        Scalar rvDistCache_;
-        Scalar soDistCache_;
         
         Scalar dist_;
         const Node* nearest_;
@@ -94,8 +91,6 @@ private:
               key_(key),
               rvBounds_(tree.bounds_),
               soDepth_(0),
-              rvDistCache_(0),
-              soDistCache_(0),
               dist_(std::numeric_limits<Scalar>::infinity()),
               nearest_(nullptr)
         {
@@ -336,15 +331,11 @@ private:
                     delta *= delta;
                     Scalar oldDelta = rvDeltas_[rvAxis];
                     rvDeltas_[rvAxis] = delta;
-                    Scalar newRVBoundsDist = rvBoundsDist();
-                    if (soDistCache_ + newRVBoundsDist <= dist_) {
-                        Scalar savedRVDist = rvDistCache_;
-                        rvDistCache_ = newRVBoundsDist;
+                    if (soBoundsDist() + rvBoundsDist() <= dist_) {
                         Scalar tmp = rvBounds_(rvAxis, childNo);
                         rvBounds_(rvAxis, childNo) = split;
                         traverse(c, depth+1);
                         rvBounds_(rvAxis, childNo) = tmp;
-                        rvDistCache_ = savedRVDist;
                     }
                     rvDeltas_[rvAxis] = oldDelta;
                 }
@@ -365,13 +356,8 @@ private:
                 if (const Node *c = n->children_[1-childNo]) {
                     Eigen::Matrix<Scalar, 2, 1> tmp = soBounds_[childNo].col(soAxis);
                     soBounds_[childNo].col(soAxis) = mp;
-                    Scalar newSOBoundsDist = soBoundsDist();
-                    if (newSOBoundsDist + rvDistCache_ <= dist_) {
-                        Scalar savedSOBoundsDist = soDistCache_;
-                        soDistCache_ = newSOBoundsDist;
+                    if (soBoundsDist() + rvBoundsDist() <= dist_)
                         traverse(c, depth+1);
-                        soDistCache_ = savedSOBoundsDist;
-                    }
                     soBounds_[childNo].col(soAxis) = tmp;
                 }
                 --soDepth_;
