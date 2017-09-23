@@ -291,7 +291,11 @@ private:
                     assert(std::abs(dotBounds(b1, axis1, pc)) < 1e-0);
                     assert(std::abs(dotBounds(b2, axis2, pc)) < 1e-0);
                     assert(std::abs(dotBounds(b3, axis3, pc)) < 1e-0);
-                    
+
+                    // distance to the corner should be greater than the distance to the edge
+                    assert(std::abs(pc.dot(q.coeffs().matrix())) <
+                           std::abs(pe.dot(q.coeffs().matrix())));
+                           
                     Scalar cornerDist = std::acos(std::abs(q.coeffs().matrix().dot(pc)));
                     edgeDist = std::min(edgeDist, cornerDist);
                 }
