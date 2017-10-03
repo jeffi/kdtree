@@ -1,6 +1,7 @@
 #include <iostream>
 #include "kdtree.hpp"
 #include "se3kdtree2.hpp"
+#include "se3kdtree3.hpp"
 #include "random_state.hpp"
 #include <chrono>
 #include <random>
@@ -152,7 +153,7 @@ void benchmarkSE3(const std::string& name, const Eigen::Array<_Scalar, 3, 2>& bo
     std::vector<State> nodes;
     std::vector<int> linear;
     nodes.reserve(N);
-    SE3KDTree<int, _Scalar, IndexKey<State>> tree(IndexKey<State>(nodes), bounds);
+    SE3KDTree3<int, _Scalar, IndexKey<State>> tree(IndexKey<State>(nodes), bounds);
     std::mt19937_64 rng;
     for (int i=0 ; i<N ; ++i) {
         nodes.push_back(randomState(bounds, rng));
