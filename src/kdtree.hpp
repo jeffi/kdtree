@@ -29,10 +29,16 @@ template <typename _Scalar, int _rows>
 class BoundedEuclideanSpace : public EuclideanSpace<_Scalar, _rows> {
     Eigen::Array<_Scalar, _rows, 2> bounds_;
 
+    void checkBounds() {
+        assert((bounds_ == bounds_).all()); // no NaNs
+        assert((bounds_.col(0) < bounds_.col(1)).all());
+    }
+    
 public:
     BoundedEuclideanSpace(const Eigen::Array<_Scalar, _rows, 2>& bounds)
         : bounds_(bounds)
     {
+        checkBounds();
     }
 
     BoundedEuclideanSpace(
@@ -41,6 +47,7 @@ public:
     {
         bounds_.col(0) = min;
         bounds_.col(1) = max;
+        checkBounds();
     }
 
     inline const Eigen::Array<_Scalar, _rows, 2>& bounds() const {
@@ -868,7 +875,7 @@ struct KDNearest {
     void update(const KDNode<_T>* n) {
         Distance d = space_.distance(tToKey_(n->value_), key_);
         // std::cout << "dist " << d << " < " << dist_ << std::endl;
-        if (d < dist_) {
+        if (d <= dist_) {
             dist_ = d;
             nearest_ = n;
         }
@@ -948,6 +955,7 @@ public:
         nearest.traverse(root_, 0, 0);
         if (dist)
             *dist = nearest.dist_;
+        assert(nearest.nearest_ != nullptr);
         return &nearest.nearest_->value_;
     }
 

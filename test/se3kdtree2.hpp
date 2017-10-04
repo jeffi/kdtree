@@ -84,6 +84,7 @@ private:
         Scalar soBoundsDistCache_;
         int soDepth_;
         int vol_;
+        unsigned explored_;
         
         Scalar dist_;
         const Node* nearest_;
@@ -95,6 +96,7 @@ private:
               rvBoundsDistCache_(0),
               soBoundsDistCache_(0),
               soDepth_(0),
+              explored_(0),
               dist_(std::numeric_limits<Scalar>::infinity()),
               nearest_(nullptr)
         {
@@ -107,6 +109,7 @@ private:
         }
 
         void update(const Node* n) {
+            ++explored_;
             Scalar d = distance(tree_.tToKey_(n->value_), key_);
             if (d < dist_) {
                 dist_ = d;
@@ -1145,7 +1148,9 @@ private:
                     if (std::get<0>(key_).coeffs()[vol_] < 0)
                         std::get<0>(key_).coeffs() = -std::get<0>(key_).coeffs();
 
-                    traverse(root, 1);
+                    soBoundsDistCache_ = soBoundsDist();
+                    if (soBoundsDistCache_ <= dist_)
+                        traverse(root, 1);
                 }
             }
         }
@@ -1229,11 +1234,12 @@ public:
         ++size_;
     }
 
-    const _T* nearest(const State& state, Scalar* dist = 0) const {
+    const _T* nearest(const State& state, Scalar* dist = 0, unsigned *explored = 0) const {
         if (size_ == 0) return nullptr;
         Nearest nearest(*this, state);
         nearest.traverseRoots(roots_);
         if (dist) *dist = nearest.dist_;
+        if (explored) *explored = nearest.explored_;
         return &nearest.nearest_->value_;
     }
     

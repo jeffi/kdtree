@@ -28,7 +28,7 @@ randomState(const unc::robotics::kdtree::SO3Space<_Scalar>&, _RNG& rng) {
 }
 
 template <typename _RNG, typename _Scalar, int _dim>
-Eigen::Matrix<_Scalar, 3, 1>
+Eigen::Matrix<_Scalar, _dim, 1>
 randomRVState(const Eigen::Array<_Scalar, _dim, 2>& bounds, _RNG& rng) {
     Eigen::Matrix<_Scalar, _dim, 1> q;
     
