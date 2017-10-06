@@ -138,7 +138,8 @@ public:
     static constexpr int dimensions = 3;
 
     inline Distance distance(const State& a, const State& b) const {
-        return std::acos(std::abs(a.coeffs().matrix().dot(b.coeffs().matrix())));
+        Distance dot = std::abs(a.coeffs().matrix().dot(b.coeffs().matrix()));
+        return dot < 0 ? M_PI_2 : dot > 1 ? 0 : std::acos(dot);
     }
 };
 
