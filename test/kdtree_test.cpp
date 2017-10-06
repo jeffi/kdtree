@@ -233,11 +233,18 @@ static void testRNN(const Space& space, std::size_t N, std::size_t Q, typename S
         // maxRadius must be small enough that the following assert does not trigger
         EXPECT(nearest.size()) != N;
 
-        std::sort(nodes.begin(), nodes.end(), [&q, &space] (auto& a, auto& b) {
+        // swap nodes s.t. all nodes in [begin, mid) <= maxRadius
+        auto mid = nodes.begin();
+        for (auto j = mid ; j != nodes.end() ; ++j)
+            if (space.distance(q, j->state_) <= maxRadius)
+                std::swap(*mid++, *j);
+
+        EXPECT(mid - nodes.begin()) == nearest.size();
+        
+        // sort the nodes into order
+        std::sort(nodes.begin(), mid, [&q, &space] (auto& a, auto& b) {
             return space.distance(q, a.state_) < space.distance(q, b.state_);
         });
-
-        EXPECT(space.distance(q, nodes[nearest.size()].state_)) > maxRadius;
 
         for (std::size_t j=0 ; j<nearest.size() ; ++j)
             EXPECT(nearest[j].second.name_) == nodes[j].name_;
@@ -276,7 +283,6 @@ TEST_CASE(KDTree_SO3_nearestR_long_double) {
 TEST_CASE(KDTree_RatioWeightedRV3_nearestR) {
     testRNN(makeRatioWeightedBoundedL2Space<double, 3, 17, 5>(), 5000, 100, 0.5);
 }
-
 
 
 template <typename Space, typename _Duration>
