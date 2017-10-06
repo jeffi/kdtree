@@ -57,6 +57,21 @@ randomState(
 
 }
 
+template <typename _Scalar, int _dim>
+unc::robotics::kdtree::BoundedL2Space<_Scalar, _dim> makeBoundedL2Space() {
+    Eigen::Array<_Scalar, _dim, 2> bounds;
+    bounds.col(0) = -1;
+    bounds.col(1) = 1;
+    return unc::robotics::kdtree::BoundedL2Space<_Scalar, _dim>(bounds);
+}
+
+template <typename _Scalar, int _dim, std::intmax_t _num, std::intmax_t _den>
+unc::robotics::kdtree::BoundedL2Space<_Scalar, _dim> makeRatioWeightedBoundedL2Space() {
+    using namespace unc::robotics::kdtree;
+    return RatioWeightedSpace<BoundedL2Space<_Scalar, _dim>, _num, _den>(
+        makeBoundedL2Space<_Scalar, _dim>());
+}
+
 template <typename Space>
 static void testAdd(const Space& space) {
     using namespace unc::robotics::kdtree;
@@ -77,6 +92,7 @@ static void testAdd(const Space& space) {
     for (int i=0 ; i<N ; ++i) {
         // std::cout << "# " << i << std::endl;
         State q = randomState(rng, space);
+        Distance zero = space.distance(q, q);
         tree.add(TestNode<State>(q, i));
 
         EXPECT(tree.size()) == i+1;
@@ -90,39 +106,25 @@ static void testAdd(const Space& space) {
         const TestNode<State>* nearest = tree.nearest(q, &dist);
         EXPECT(nearest) != nullptr;
         EXPECT(nearest->name_) == i;
-        EXPECT(dist) == space.distance(q, q); // ) < 1e-7; // TODO == 0;
+        EXPECT(dist) == zero;
 
         tree.nearest(nearestK, q, 1);
         EXPECT(nearestK.size()) == 1;
-        EXPECT(nearestK[0].first) == space.distance(q, q); // ) < 1e-7; // TODO == 0;
+        EXPECT(nearestK[0].first) == zero;
         EXPECT(nearestK[0].second.name_) == i;
     }
 }
 
-template <typename _Scalar, int _dim>
-static void testAddL2() {
-    using namespace unc::robotics::kdtree;
-
-    typedef BoundedL2Space<_Scalar, _dim> Space;
-
-    Eigen::Array<_Scalar, _dim, 2> bounds;
-    bounds.col(0) = -1;
-    bounds.col(1) = 1;
-    Space space((bounds));
-
-    testAdd(space);
-}
-
 TEST_CASE(KDTree_RV3_add_double) {
-    testAddL2<double, 3>();
+    testAdd(makeBoundedL2Space<double, 3>());
 }
 
 TEST_CASE(KDTree_RV3_add_float) {
-    testAddL2<float, 3>();
+    testAdd(makeBoundedL2Space<float, 3>());
 }
 
 TEST_CASE(KDTree_RV3_add_long_double) {
-    testAddL2<long double, 3>();
+    testAdd(makeBoundedL2Space<long double, 3>());
 }
 
 TEST_CASE(KDTree_SO3_add_double) {
@@ -135,6 +137,10 @@ TEST_CASE(KDTree_SO3_add_float) {
 
 TEST_CASE(KDTree_SO3_add_long_double) {
     testAdd(unc::robotics::kdtree::SO3Space<long double>());
+}
+
+TEST_CASE(KDTree_RatioWeightedRV3_add) {
+    testAdd(makeRatioWeightedBoundedL2Space<double, 3, 11, 3>());
 }
 
 template <typename Space>
@@ -172,31 +178,16 @@ static void testKNN(const Space& space, std::size_t N, std::size_t Q, std::size_
     }
 }
 
-
-template <typename _Scalar, int _dim>
-static void testKNNL2(std::size_t N, std::size_t Q, std::size_t k) {
-    using namespace unc::robotics::kdtree;
-
-    typedef BoundedL2Space<_Scalar, _dim> Space;
-
-    Eigen::Array<_Scalar, _dim, 2> bounds;
-    bounds.col(0) = -1;
-    bounds.col(1) = 1;
-    Space space((bounds));
-
-    testKNN(space, N, Q, k);
-}
-
 TEST_CASE(KDTree_RV3_nearestK_float) {
-    testKNNL2<float, 3>(5000, 500, 20);
+    testKNN(makeBoundedL2Space<float, 3>(), 5000, 500, 20);
 }
 
 TEST_CASE(KDTree_RV3_nearestK_double) {
-    testKNNL2<double, 3>(5000, 500, 20);
+    testKNN(makeBoundedL2Space<double, 3>(), 5000, 500, 20);
 }
 
 TEST_CASE(KDTree_RV3_nearestK_long_double) {
-    testKNNL2<long double, 3>(5000, 500, 20);
+    testKNN(makeBoundedL2Space<long double, 3>(), 5000, 500, 20);
 }
 
 TEST_CASE(KDTree_SO3_nearestK_float) {
@@ -210,6 +201,82 @@ TEST_CASE(KDTree_SO3_nearestK_double) {
 TEST_CASE(KDTree_SO3_nearestK_long_double) {
     testKNN(unc::robotics::kdtree::SO3Space<long double>(), 5000, 500, 20);
 }
+
+TEST_CASE(KDTree_RatioWeightedRV3_nearestK) {
+    testKNN(makeRatioWeightedBoundedL2Space<double, 3, 17, 5>(), 5000, 500, 20);
+}
+
+template <typename Space>
+static void testRNN(const Space& space, std::size_t N, std::size_t Q, typename Space::Distance maxRadius) {
+    using namespace unc::robotics::kdtree;
+
+    typedef typename Space::State State;
+    typedef typename Space::Distance Distance;
+
+    KDTree<TestNode<State>, Space, TestNodeKey> tree(TestNodeKey(), space);
+    
+    std::mt19937_64 rng;
+    std::vector<TestNode<State>> nodes;
+    nodes.reserve(N);
+    for (std::size_t i=0 ; i<N ; ++i) {
+        nodes.emplace_back(randomState(rng, space), i);
+        tree.add(nodes.back());
+    }
+
+    std::size_t total = 0;
+    std::vector<std::pair<Distance, TestNode<State>>> nearest;
+    nearest.reserve(N);
+    for (std::size_t i=0 ; i<Q ; ++i) {
+        auto q = randomState(rng, space);
+        tree.nearest(nearest, q, N, maxRadius);
+
+        // maxRadius must be small enough that the following assert does not trigger
+        EXPECT(nearest.size()) != N;
+
+        std::sort(nodes.begin(), nodes.end(), [&q, &space] (auto& a, auto& b) {
+            return space.distance(q, a.state_) < space.distance(q, b.state_);
+        });
+
+        EXPECT(space.distance(q, nodes[nearest.size()].state_)) > maxRadius;
+
+        for (std::size_t j=0 ; j<nearest.size() ; ++j)
+            EXPECT(nearest[j].second.name_) == nodes[j].name_;
+
+        total += nearest.size();
+    }
+
+    // maxRadius must be large enough that the average is > 10
+    EXPECT(total/(double)Q) > 10;
+}
+
+TEST_CASE(KDTree_RV3_nearestR_float) {
+    testRNN(makeBoundedL2Space<float, 3>(), 5000, 100, 0.5);
+}
+
+TEST_CASE(KDTree_RV3_nearestR_double) {
+    testRNN(makeBoundedL2Space<double, 3>(), 5000, 100, 0.5);
+}
+
+TEST_CASE(KDTree_RV3_nearestR_long_double) {
+    testRNN(makeBoundedL2Space<long double, 3>(), 5000, 100, 0.5);
+}
+
+TEST_CASE(KDTree_SO3_nearestR_float) {
+    testRNN(unc::robotics::kdtree::SO3Space<float>(), 5000, 100, 0.2);
+}
+
+TEST_CASE(KDTree_SO3_nearestR_double) {
+    testRNN(unc::robotics::kdtree::SO3Space<double>(), 5000, 100, 0.2);
+}
+
+TEST_CASE(KDTree_SO3_nearestR_long_double) {
+    testRNN(unc::robotics::kdtree::SO3Space<long double>(), 5000, 100, 0.2);
+}
+
+TEST_CASE(KDTree_RatioWeightedRV3_nearestR) {
+    testRNN(makeRatioWeightedBoundedL2Space<double, 3, 17, 5>(), 5000, 100, 0.5);
+}
+
 
 
 template <typename Space, typename _Duration>

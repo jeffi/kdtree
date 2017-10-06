@@ -143,7 +143,7 @@ public:
     }
 };
 
-template <typename _Space, std::intmax_t _num, std::intmax_t _den>
+template <typename _Space, std::intmax_t _num, std::intmax_t _den = 1>
 class RatioWeightedSpace : public _Space {
 public:
     typedef std::ratio<_num, _den> Ratio;

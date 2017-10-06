@@ -122,16 +122,18 @@ public:
             auto nAsserts = g_assertionCount.load() - assertionsBefore;
             std::ostringstream msg;
             msg.imbue(std::locale(""));
-            msg << name_ << " \33[32mpassed\33[0m ("
+            msg << name_ << " \33[32mpassed ✓\33[0m ("
+                << (nAsserts ? "" : "\33[31m")
                 << nAsserts << " assertion" << (nAsserts == 1 ? "" : "s")
-                << ", " << std::chrono::duration<double, std::micro>(elapsed).count()
-                << " µs)\n";
+                << (nAsserts ? "" : "\33[0m")
+                << ", " << std::chrono::duration<double, std::milli>(elapsed).count()
+                << " ms)\n";
             std::cout << msg.str() << std::flush;
             return true;
         } catch (const std::runtime_error& e) {
             std::ostringstream msg;
             msg.imbue(std::locale(""));
-            msg << name_ << " \33[31;1mfailed.\33[0m\n\t" << e.what() << "\n";
+            msg << name_ << " \33[31;1mfailed ⚠\33[0m\n\t" << e.what() << "\n";
             std::cout << msg.str() << std::flush;
             return false;
         }
@@ -168,10 +170,15 @@ public:
 // }
 
 int main(int argc, char* argv[]) {
-    bool success = true;
+    int run = 0;
+    int passed = 0;
     for (test::TestCase *test : test::g_testCases) {
-        success &= test->run();
+        ++run;
+        passed += test->run();            
     }
-    return success ? 0 : 1;
+    std::cout << passed << " of "
+              << run << " test" << (run == 1?"":"s") << " passed."
+              << std::endl;
+    return run == passed ? 0 : 1;
 }
 

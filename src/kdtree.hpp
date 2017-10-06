@@ -219,6 +219,25 @@ struct KDAddTraversal<SO3Space<_Scalar>>
     }
 };
 
+template <typename _Space, std::intmax_t _num, std::intmax_t _den>
+struct KDAddTraversal<RatioWeightedSpace<_Space, _num, _den>>
+    : KDAddTraversal<_Space>
+{
+    typedef RatioWeightedSpace<_Space, _num, _den> Space;
+    typedef typename Space::State State;
+    typedef typename Space::Distance Distance;
+    // inherit constructor
+    using KDAddTraversal<_Space>::KDAddTraversal;
+
+    Distance keyDistance(const State& q) {
+        return KDAddTraversal<_Space>::keyDistance(q) * _num / _den;
+    }
+
+    Distance maxAxis(int *axis) {
+        return KDAddTraversal<_Space>::maxAxis(axis) * _num / _den;
+    }
+};
+
 template <typename _Scalar, int _dimensions>
 struct KDNearestTraversal<BoundedL2Space<_Scalar, _dimensions>>
     : KDBoundedL2Traversal<_Scalar, _dimensions>
@@ -503,6 +522,37 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
             }
             --soDepth_;
         }
+    }
+};
+
+template <typename _Space, std::intmax_t _num, std::intmax_t _den>
+struct KDNearestTraversal<RatioWeightedSpace<_Space, _num, _den>>
+    : KDNearestTraversal<_Space>
+{
+    typedef RatioWeightedSpace<_Space, _num, _den> Space;
+    typedef typename Space::State State;
+    typedef typename Space::Distance Distance;
+
+    // inherit constructor
+    using KDNearestTraversal<_Space>::KDNearestTraversal;
+
+    // TODO: keyDistance and maxAxis implementations are duplicated
+    // with KDAddTraversal.  Would be nice to merge them.
+    Distance keyDistance(const State& q) {
+        return KDNearestTraversal<_Space>::keyDistance(q) * _num / _den;
+    }
+
+    Distance maxAxis(int *axis) {
+        return KDNearestTraversal<_Space>::maxAxis(axis) * _num / _den;
+    }
+    
+    Distance distToRegion() {
+        return KDNearestTraversal<_Space>::distToRegion() * _num / _den;
+    }
+
+    template <typename _Nearest, typename _T>
+    void traverse(_Nearest& nearest, const KDNode<_T>* n, int axis, typename _Nearest::Distance d) {
+        KDNearestTraversal<_Space>::traverse(nearest, n, axis, d * _den / _num);
     }
 
 };
