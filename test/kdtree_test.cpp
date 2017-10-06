@@ -1,74 +1,12 @@
-#include <iostream>
-#include "kdtree.hpp"
-#include <vector>
-#include <random>
+#include "../src/kdtree.hpp"
 #include "test.hpp"
-#include <chrono>
-#include <iomanip>
-#include "random_state.hpp"
-
-template <typename _T>
-struct StatePrinter;
-
-template <typename _State>
-StatePrinter<_State> statePrinter(const _State& q) {
-    return StatePrinter<_State>(q);
-}
-
-template <typename _Scalar, int _rows>
-struct StatePrinter<Eigen::Matrix<_Scalar, _rows, 1>> {
-    const Eigen::Matrix<_Scalar, _rows, 1>& value_;
-    StatePrinter(const Eigen::Matrix<_Scalar, _rows, 1>& v) : value_(v) {}
-
-    template <typename _Char, typename _Traits>
-    friend std::basic_ostream<_Char, _Traits>&
-    operator << (std::basic_ostream<_Char, _Traits>& os, const StatePrinter& q) {
-        return os << q.value_.transpose();
-    }
-};
-
-template <typename _Scalar>
-struct StatePrinter<Eigen::Quaternion<_Scalar>> {
-    const Eigen::Quaternion<_Scalar>& value_;
-    StatePrinter(const Eigen::Quaternion<_Scalar>& v) : value_(v) {}
-
-    template <typename _Char, typename _Traits>
-    friend std::basic_ostream<_Char, _Traits>&
-    operator << (std::basic_ostream<_Char, _Traits>& os, const StatePrinter& q) {
-        return os << q.value_.coeffs().transpose();
-    }
-};
-
-template <typename ... _States>
-struct StatePrinter<unc::robotics::kdtree::CompoundState<_States...>> {
-    typedef unc::robotics::kdtree::CompoundState<_States...> State;
-    
-    const State& value_;
-
-    StatePrinter(const State& v) : value_(v) {}
-
-    template <typename ... _T>
-    static void ignore(const _T& ... arg) {}
-    
-    template <typename _Char, typename _Traits, std::size_t ... I>
-    void printTo(std::basic_ostream<_Char, _Traits>& os, std::index_sequence<I...>) const {
-        ignore(((I ? os << ", " : os) << statePrinter(value_.template substate<I>()))...);
-    }
-
-    template <typename _Char, typename _Traits>
-    friend std::basic_ostream<_Char, _Traits>&
-    operator << (std::basic_ostream<_Char, _Traits>& os, const StatePrinter& q) {
-        q.printTo(os, std::make_index_sequence<sizeof...(_States)>{});
-        return os;
-    }
-};
-
+#include <random>
 
 template <typename _State>
 struct TestNode {
     _State state_;
     int name_;
-
+    
     TestNode(const _State& state, int name)
         : state_(state),
           name_(name)
@@ -83,176 +21,204 @@ struct TestNodeKey {
     }
 };
 
-template <typename _State>
-struct TestIndexKey {
-    const std::vector<TestNode<_State>>& nodes_;
-    TestIndexKey(const std::vector<TestNode<_State>>& nodes) : nodes_(nodes) {}
-    inline const _State& operator() (int index) const {
-        return nodes_[index].state_;
-    }
-};
-
-
-
-template <typename _Space>
-struct KDTreeTests {
-    typedef _Space Space;
-    typedef typename Space::State State;
-    
-    Space space_;
-
-    KDTreeTests(const _Space& space)
-        : space_(space)
-    {
+template <typename _RNG, typename _Scalar, int _dimensions>
+typename unc::robotics::kdtree::BoundedL2Space<_Scalar,_dimensions>::State
+randomState(
+    _RNG& rng,
+    const unc::robotics::kdtree::BoundedL2Space<_Scalar, _dimensions>& space)
+{
+    typename unc::robotics::kdtree::BoundedL2Space<_Scalar, _dimensions>::State q;
+    for (int i=0 ; i<_dimensions ; ++i) {
+        std::uniform_real_distribution<_Scalar> dist(space.bounds(i, 0), space.bounds(i, 1));
+        q[i] = dist(rng);
     }
 
-    void testAdd(int N) const {
-        unc::robotics::kdtree::KDTree<TestNode<State>, Space, TestNodeKey> tree(TestNodeKey(), space_);
+    return q;
+}
 
-        EXPECT(tree.size()) == 0;
-        EXPECT(tree.empty()) == true;
-        
-        std::mt19937_64 rng;
-        for (int i=0 ; i<N ; ++i) {
-            TestNode<State> n(randomState(space_, rng), i);
-            tree.add(n);
-            EXPECT(tree.size()) == i+1;
-            EXPECT(tree.empty()) == false;
-            unsigned depth = std::floor(std::log(i+1.0) / std::log(2.0) + 1);
-            EXPECT(tree.depth()) >= depth;
-            EXPECT(tree.depth()) <= depth*(1 + std::log(2.0));
-        }
-    }
-
-    void testNearest(int N, int Q) const {
-        std::vector<TestNode<State>> nodes;
-        std::vector<int> linear;
-        nodes.reserve(N);
-        linear.reserve(N);
-        unc::robotics::kdtree::KDTree<int, Space, TestIndexKey<State>> tree(TestIndexKey<State>(nodes), space_);
-        std::mt19937_64 rng;
-        for (int i=0 ; i<N ; ++i) {
-            nodes.emplace_back(randomState(space_, rng), i);
-            tree.add(i);
-            linear.push_back(i);
-        }
-
-        // int no = 0;
-        // tree.visit([&no] (int index, unsigned depth) {
-        //         std::cout << no++ << ": ";
-        //         for (unsigned i=0 ; i<depth ; ++i)
-        //             std::cout << "  ";
-        //         std::cout << index << std::endl;
-        //     });
-
-        for (int i=0 ; i<Q ; ++i) {
-            auto q = randomState(space_, rng);
-            typename Space::Distance d;
-            const int* index = tree.nearest(q, &d);
-            EXPECT(index) != nullptr;
-            std::partial_sort(linear.begin(), linear.begin()+1, linear.end(), [&] (int a, int b) {
-                    return space_.distance(nodes[a].state_, q) <
-                           space_.distance(nodes[b].state_, q);
-                });
-            // std::cout << "linear: " << space_.distance(nodes[linear[0]].state_, q) << std::endl;
-            EXPECT(*index) == linear[0];
-            EXPECT(d) == space_.distance(nodes[linear[0]].state_, q);
-        }
-    }
-
-    void testBenchmark(int N, int Q) const {
-        std::vector<TestNode<State>> nodes;
-        std::vector<int> linear;
-        nodes.reserve(N);
-        linear.reserve(N);
-        unc::robotics::kdtree::KDTree<int, Space, TestIndexKey<State>> tree(TestIndexKey<State>(nodes), space_);
-
-        std::mt19937_64 rng;
-        for (int i=0 ; i<N ; ++i) {
-            nodes.emplace_back(randomState(space_, rng), i);
-            tree.add(i);
-            linear.push_back(i);
-        }
-
-        std::vector<State> queries;
-        queries.reserve(N);
-        for (int i=0 ; i<Q ; ++i)
-            queries.push_back(randomState(space_, rng));
-
-        std::vector<int> linearResults;
-        std::vector<int> kdtreeResults;
-
-        typedef std::chrono::high_resolution_clock Clock;
-
-        Clock::time_point start = Clock::now();
-        
-        for (int i=0 ; i<Q ; ++i)
-            kdtreeResults.push_back(*tree.nearest(queries[i]));
-
-        Clock::time_point mid = Clock::now();
-
-        for (int i=0 ; i<Q ; ++i) {
-            auto& q = queries[i];
-            std::partial_sort(linear.begin(), linear.begin()+1, linear.end(), [&] (int a, int b) {
-                    return space_.distance(nodes[a].state_, q) <
-                           space_.distance(nodes[b].state_, q);
-                });
-            linearResults.push_back(linear[0]);
-        }
-
-        Clock::time_point end = Clock::now();
-
-        double kdtreeElapsed = std::chrono::duration<double, std::micro>(mid - start).count();
-        double linearElapsed = std::chrono::duration<double, std::micro>(end - mid).count();
-
-        std::cout << std::fixed << std::setprecision(2)
-                  << "Linear: " << std::setw(6) << linearElapsed/Q << " us/query" << std::endl
-                  << "KDTree: " << std::setw(6) << kdtreeElapsed/Q << " us/query ("
-                  << kdtreeElapsed * 100 / linearElapsed << "%)" << std::endl;
-
-        EXPECT(kdtreeElapsed) < linearElapsed;
-    }
-};
-
-template <typename _Space>
-bool run(const std::string& spaceName, const _Space& space) {
-    KDTreeTests<_Space> tests(space);
-    bool success = true;
-    success &= runTest(spaceName + "::testAdd(1000)", [&] { tests.testAdd(1000); });
-    success &= runTest(spaceName + "::testNearest(1000,100)", [&] { tests.testNearest(1000, 100); });
-    success &= runTest(spaceName + "::testBenchmark(10000,100)", [&] { tests.testBenchmark(10000, 100); });
-    return success;
-}    
-
-int main(int argc, char *argv[]) {
+template <typename Space>
+static void testAdd(const Space& space) {
     using namespace unc::robotics::kdtree;
+
+    typedef typename Space::State State;
+    typedef typename Space::Distance Distance;
+
+    constexpr int N = 1000;
+
+    KDTree<TestNode<State>, Space, TestNodeKey> tree(TestNodeKey(), space);
+
+    EXPECT(tree.size()) == 0;
+    EXPECT(tree.empty()) == true;
     
-    bool success = true;
+    std::mt19937_64 rng;
+    std::vector<std::pair<Distance, TestNode<State>>> nearestK;
+    
+    for (int i=0 ; i<N ; ++i) {
+        State q = randomState(rng, space);
+        tree.add(TestNode<State>(q, i));
 
-    success &= run("SO3Space<double>", SO3Space<double>());
+        EXPECT(tree.size()) == i+1;
+        EXPECT(tree.empty()) == false;
+        int minDepth = std::floor(std::log(i+1) / std::log(2) + 1);
+        int maxDepth = std::ceil(minDepth*(1 + std::log(2)));
+        EXPECT(tree.depth()) >= minDepth;
+        EXPECT(tree.depth()) <= maxDepth;
 
-    Eigen::Array<double, 4, 2> bounds4d;
-    bounds4d <<
-        -1.1, 1,
-        -1.2, 2,
-        -1.3, 3,
-        -1.4, 4;
-    success &= run("BoundedEuclideanSpace<double, 4>", BoundedEuclideanSpace<double, 4>(bounds4d));
-    Eigen::Array<double, 6, 2> bounds6d;
-    bounds6d.col(0) = -1;
-    bounds6d.col(1) = 1;
+        Distance dist;
+        const TestNode<State>* nearest = tree.nearest(q, &dist);
+        EXPECT(nearest) != nullptr;
+        EXPECT(nearest->name_) == i;
+        EXPECT(dist) == 0;
 
-    success &= run("BoundedEuclideanSpace<double, 6>", BoundedEuclideanSpace<double, 6>(bounds6d));
+        tree.nearest(nearestK, q, 1);
+        EXPECT(nearestK.size()) == 1;
+        EXPECT(nearestK[0].first) == 0;
+        EXPECT(nearestK[0].second.name_) == i;
+    }
+}
 
-    Eigen::Array<double, 3, 2> bounds3d(bounds4d.block<3, 2>(0,0));
-    success &= run("BoundedSE3Space<double>", BoundedSE3Space<double>(
-                       SO3Space<double>(),
-                       BoundedEuclideanSpace<double, 3>(bounds3d)));
+template <typename _Scalar, int _dim>
+static void testAddL2() {
+    using namespace unc::robotics::kdtree;
 
-    // KDTreeTests<unc::robotics::kdtree::SO3Space<double>> tests(space);
-    // std::mt19937_64 rng;
-    // auto q = randomState(space, rng);
-    // std::cout << q.coeffs().transpose() << std::endl;
+    typedef BoundedL2Space<_Scalar, _dim> Space;
 
-    return success ? 0 : 1;
+    Eigen::Array<_Scalar, _dim, 2> bounds;
+    bounds.col(0) = -1;
+    bounds.col(1) = 1;
+    Space space((bounds));
+
+    testAdd(space);
+}
+
+TEST_CASE(KDTree_add_double) {
+    testAddL2<double, 3>();
+}
+
+TEST_CASE(KDTree_add_float) {
+    testAddL2<float, 3>();
+}
+
+TEST_CASE(KDTree_add_long_double) {
+    testAddL2<long double, 3>();
+}
+
+template <typename Space>
+static void testKNN(const Space& space, std::size_t N, std::size_t Q, std::size_t k) {
+    using namespace unc::robotics::kdtree;
+
+    typedef typename Space::State State;
+    typedef typename Space::Distance Distance;
+
+    KDTree<TestNode<State>, Space, TestNodeKey> tree(TestNodeKey(), space);
+    
+    std::mt19937_64 rng;
+    std::vector<TestNode<State>> nodes;
+    nodes.reserve(N);
+    for (std::size_t i=0 ; i<N ; ++i) {
+        nodes.emplace_back(randomState(rng, space), i);
+        tree.add(nodes.back());
+    }
+
+    std::vector<std::pair<Distance, TestNode<State>>> nearest;
+    nearest.reserve(k);
+    for (std::size_t i=0 ; i<Q ; ++i) {
+        auto q = randomState(rng, space);
+        tree.nearest(nearest, q, k);
+
+        EXPECT(nearest.size()) == k;
+        
+        std::partial_sort(nodes.begin(), nodes.begin() + k, nodes.end(), [&q, &space] (auto& a, auto& b) {
+            return space.distance(q, a.state_) < space.distance(q, b.state_);
+        });
+
+        for (std::size_t j=0 ; j<k ; ++j) {
+            EXPECT(nearest[j].second.name_) == nodes[j].name_;
+        }
+    }
+}
+
+
+template <typename _Scalar, int _dim>
+static void testKNNL2(std::size_t N, std::size_t Q, std::size_t k) {
+    using namespace unc::robotics::kdtree;
+
+    typedef BoundedL2Space<_Scalar, _dim> Space;
+
+    Eigen::Array<_Scalar, _dim, 2> bounds;
+    bounds.col(0) = -1;
+    bounds.col(1) = 1;
+    Space space((bounds));
+
+    testKNN(space, N, Q, k);
+}
+
+TEST_CASE(KDTree_nearestK_float) {
+    testKNNL2<float, 3>(5000, 500, 20);
+}
+
+TEST_CASE(KDTree_nearestK_double) {
+    testKNNL2<double, 3>(5000, 500, 20);
+}
+
+TEST_CASE(KDTree_nearestK_long_double) {
+    testKNNL2<long double, 3>(5000, 500, 20);
+}
+
+template <typename Space, typename _Duration>
+static std::pair<std::size_t, double>
+benchmarkKNN(const Space& space, std::size_t N, std::size_t k, _Duration maxDuration) {
+    using namespace unc::robotics::kdtree;
+
+    typedef typename Space::State State;
+    typedef typename Space::Distance Distance;
+
+    KDTree<TestNode<State>, Space, TestNodeKey> tree(TestNodeKey(), space);
+    
+    std::mt19937_64 rng;
+    std::vector<TestNode<State>> nodes;
+    nodes.reserve(N);
+    for (std::size_t i=0 ; i<N ; ++i) {
+        nodes.emplace_back(randomState(rng, space), i);
+        tree.add(nodes.back());
+    }
+
+    std::vector<std::pair<Distance, TestNode<State>>> nearest;
+    nearest.reserve(k);
+    std::chrono::high_resolution_clock::duration maxElapsed = maxDuration;
+    std::size_t count = 0;
+    auto start = std::chrono::high_resolution_clock::now();
+    for (;;) {
+        for (std::size_t i=0 ; i<100 ; ++i) {
+            auto q = randomState(rng, space);
+            tree.nearest(nearest, q, k);
+        }
+        count += 100;
+        auto elapsed = std::chrono::high_resolution_clock::now() - start;
+        if (elapsed > maxElapsed)
+            return std::make_pair(count, std::chrono::duration<double>(elapsed).count());
+    }
+}
+
+
+template <typename _Scalar, int _dim, typename _Duration>
+static std::pair<std::size_t, double>
+benchmarkKNNL2(std::size_t N, std::size_t k, _Duration maxDuration) {
+    using namespace unc::robotics::kdtree;
+
+    typedef BoundedL2Space<_Scalar, _dim> Space;
+
+    Eigen::Array<_Scalar, _dim, 2> bounds;
+    bounds.col(0) = -1;
+    bounds.col(1) = 1;
+    Space space((bounds));
+
+    return benchmarkKNN(space, N, k, maxDuration);
+}
+
+TEST_CASE(benchmark) {
+    using namespace std::literals::chrono_literals;
+    auto result = benchmarkKNNL2<double, 3>(50000, 20, 1s);
+    std::cout << result.first << " queries in " << result.second << " s = "
+              << result.second * 1e6 / result.first << " us/q" << std::endl;
 }
