@@ -7,11 +7,13 @@ namespace unc {
 namespace robotics {
 namespace kdtree {
 
+namespace detail {
 template <typename _Scalar>
 int volumeIndex(const Eigen::Quaternion<_Scalar>& q) {
     int m;
     q.coeffs().array().abs().maxCoeff(&m);
     return m;
+}
 }
 
 template <typename _T, typename _Scalar, typename _TtoKey,
@@ -147,19 +149,21 @@ private:
                     // face @ a0 is in bounds
                     continue;
                 }
+                assert(b0 ^ (dot0[1] <= 0)); // only outside of one bound
 
                 Eigen::Matrix<Scalar, 4, 1> p0 = q;
                 p0[vol_] -= soBounds_[b0](0, a0) * dot0[b0];
                 p0[i0  ] -= soBounds_[b0](1, a0) * dot0[b0];
-                if (p0[vol_] < 0)
-                    p0 = -p0;
+                p0.normalize();
+                // if (p0[vol_] < 0) // FLIP?
+                //     p0 = -p0;
 
                 // check that the projected point is on the bound
                 assert(std::abs(dotBounds(b0, a0, p0)) < 1e-9);
                 // check that the distance to the projected point is
                 // the same as the distance to the bound.
-                // assert(std::abs(std::acos(std::abs(p0.normalized().dot(q))) -
-                //                 std::asin(std::abs(dot0[b0]))) < 1e-9);
+                assert(std::abs(std::acos(std::abs(p0.normalized().dot(q))) -
+                                std::asin(std::abs(dot0[b0]))) < 1e-9);
                 
                 bool faceInBounds = true;
                 for (int a1 = a0+1 ; (a1 = a1%3) != a0 ; ++a1) {
@@ -175,6 +179,7 @@ private:
                         // p0 @ a1 is in bounds
                         continue;
                     }
+                    assert(b1 ^ (dot[1] <= 0)); // only outside of one bound
                     // std::cout << "face " << a0 << " out of bounds at " << a1 << "," << b1 << std::endl;
                     faceInBounds = false;
 
@@ -193,9 +198,18 @@ private:
                     p1[i0] = -t0*r;
                     p1[i1] = -t1*r;
                     p1[i2] = q[i2] * s;
-                    // p1.normalize();
-                    if (p1[vol_] < 0)
-                        p1 = -p1;
+                    p1.normalize();
+                    // if (p1[vol_] < 0) // FLIP?
+                    //     p1 = -p1;
+
+                    // distance to p1 should be the distance to the plane
+                    assert(std::abs(
+                               std::acos(std::abs(p1.dot(q))) -
+                               std::asin(std::abs(dotBounds(b0, a0, q)))) < 1e-9);
+
+                    // p1 should be on both bounds
+                    assert(std::abs(dotBounds(b0, a0, p1)) < 1e-9);
+                    assert(std::abs(dotBounds(b1, a1, p1)) < 1e-9);
 
                     // check that p1 is in bounds of remaining axis
                     Eigen::Matrix<Scalar, 2, 1> dot2(
@@ -211,6 +225,10 @@ private:
                         // dist = std::min(dist, edgeDist);
                         dotMax = std::max(dotMax, std::abs(p1.normalized().dot(q)));
                     } else {
+                        assert(b2 ^ (dot2[1] <= 0));
+
+                        b2 = 1-b2;
+                        
                         int cornerCode = 1 << ((b0 << a0) | (b1 << a1) | (b2 << a2));
                         if (cornerChecked & cornerCode)
                             continue;
@@ -231,6 +249,10 @@ private:
                         cp[vol_] = -ax*by*cz;
                         cp.normalize();
 
+                        assert(std::abs(dotBounds(b0, a0, cp)) < 1e-9);
+                        assert(std::abs(dotBounds(b1, a1, cp)) < 1e-9);
+                        assert(std::abs(dotBounds(b2, a2, cp)) < 1e-9);
+                        
                         // Scalar cornerDist = std::acos(std::abs(q.dot(cp)));
                         // int corner[3];
                         // corner[a0] = b0;

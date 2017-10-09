@@ -132,7 +132,98 @@ private:
                  + soBounds_[b](1, axis)*q[(vol_ + axis + 1)%4];
         }
 
+        template <typename _Derived>
+        bool projectionOnFace(int b0, int a0, Scalar dot, const Eigen::DenseBase<_Derived>& q) {
+            Eigen::Matrix<Scalar, 4, 1> p0 = q;
+            p0[vol_] -= soBounds_[b0](0, a0) * dot;
+            p0[(vol_ + a0 + 1)%4] -= soBounds_[b0](1, a0) * dot;
+            for (int a1 = a0+1 ; (a1 = a1%3) != a0 ; ++a1)
+                if (dotBounds(0, a1, p0) < 0 || dotBounds(1, a1, p0) > 0)
+                    return false;
+            return true;
+        }
+        
         Scalar soBoundsDistAll() {
+            const auto& q = std::get<0>(key_).coeffs().matrix();
+            // check faces
+            bool inAllBounds = true;
+            for (int a0 = 0 ; a0 < 3 ; ++a0) {
+                Eigen::Matrix<Scalar, 2, 1> dot(dotBounds(0, a0, q), dotBounds(1, a0, q));
+                int b0 = dot[0] >= 0;
+                if (b0 && dot[1] <= 0)
+                    continue; // in bounds
+                if (projectionOnFace(b0, a0, dot[b0], q))
+                    return std::asin(dot[b0]);
+                inAllBounds = false;
+            }
+            if (inAllBounds)
+                return 0;
+
+            // check edges
+            // ++, +-, --, -+ for 01, 02, 12
+            Scalar dotMax = 0;
+            for (int a0 = 0 ; a0 < 3 ; ++a0) {
+                int a1 = (a0 + 1)%3;
+                int a2 = (a0 + 2)%3;
+                int i0 = (vol_ + a0 + 1)%4;
+                int i1 = (vol_ + a1 + 1)%4;
+                int i2 = (vol_ + a2 + 1)%4;
+                
+                for (int edge = 0 ; edge < 4 ; ++edge) {
+                    int b0 = edge & 1;
+                    int b1 = edge >> 1;
+
+                    Eigen::Matrix<Scalar, 4, 1> p1;
+                    Scalar t0 = soBounds_[b0](0, a0) / soBounds_[b0](1, a0);
+                    Scalar t1 = soBounds_[b1](0, a1) / soBounds_[b1](1, a1);
+                    Scalar r = q[vol_] - t0*q[i0] - t1*q[i1];
+                    Scalar s = t0*t0 + t1*t1 + 1;
+                    p1[vol_] = r;
+                    p1[i0] = -t0*r;
+                    p1[i1] = -t1*r;
+                    p1[i2] = q[i2] * s;
+                    p1.normalize();
+                    if (p1[vol_] < 0) // FLIP?
+                        p1 = -p1;
+
+                    if (dotBounds(0, a2, p1) >= 0 && dotBounds(1, a2, p1) <= 0)
+                        dotMax = std::max(dotMax, std::abs(p1.dot(q))); // in bounds
+                }
+            }
+
+            // check corners: +++, ++-, +-+, +--, -++, -+-, --+, ---
+            for (int corner = 0 ; corner < 8 ; ++corner) {
+                int b0 = corner & 1;
+                int b1 = (corner >> 1) & 1;
+                int b2 = corner >> 2;
+
+                // edge is not in bounds, use the distance to the corner
+                Eigen::Matrix<Scalar, 4, 1> cp;
+                Scalar aw = soBounds_[b0](0, 0);
+                Scalar ax = soBounds_[b0](1, 0);
+                Scalar bw = soBounds_[b1](0, 1);
+                Scalar by = soBounds_[b1](1, 1);
+                Scalar cw = soBounds_[b2](0, 2);
+                Scalar cz = soBounds_[b2](1, 2);
+
+                cp[(vol_ + 1)%4] = aw*by*cz;
+                cp[(vol_ + 2)%4] = ax*bw*cz;
+                cp[(vol_ + 3)%4] = ax*by*cw;
+                cp[vol_]        = -ax*by*cz;
+                cp.normalize();
+
+                // cp should be on both bounds
+                assert(std::abs(dotBounds(b0, 0, cp)) < 1e-9);
+                assert(std::abs(dotBounds(b1, 1, cp)) < 1e-9);
+                assert(std::abs(dotBounds(b2, 2, cp)) < 1e-9);
+
+                dotMax = std::max(dotMax, std::abs(q.dot(cp)));
+            }
+
+            return std::acos(dotMax);
+        }
+
+        Scalar soBoundsDistAllOld() {
             const auto& q = std::get<0>(key_).coeffs().matrix();
             Scalar dotMax = 0; // dist = std::numeric_limits<Scalar>::infinity();
             Scalar qv = q[vol_];
@@ -149,19 +240,20 @@ private:
                     // face @ a0 is in bounds
                     continue;
                 }
+                assert(b0 ^ (dot0[1] <= 0));
 
                 Eigen::Matrix<Scalar, 4, 1> p0 = q;
                 p0[vol_] -= soBounds_[b0](0, a0) * dot0[b0];
                 p0[i0  ] -= soBounds_[b0](1, a0) * dot0[b0];
-                if (p0[vol_] < 0)
-                    p0 = -p0;
+                // if (p0[vol_] < 0) // FLIP?
+                //     p0 = -p0;
 
                 // check that the projected point is on the bound
                 assert(std::abs(dotBounds(b0, a0, p0)) < 1e-9);
                 // check that the distance to the projected point is
                 // the same as the distance to the bound.
-                // assert(std::abs(std::acos(std::abs(p0.normalized().dot(q))) -
-                //                 std::asin(std::abs(dot0[b0]))) < 1e-9);
+                assert(std::abs(std::acos(std::abs(p0.normalized().dot(q))) -
+                                std::asin(std::abs(dot0[b0]))) < 1e-9);
                 
                 bool faceInBounds = true;
                 for (int a1 = a0+1 ; (a1 = a1%3) != a0 ; ++a1) {
@@ -177,6 +269,8 @@ private:
                         // p0 @ a1 is in bounds
                         continue;
                     }
+                    assert(b1 ^ (dot1[1] <= 0));
+                    
                     // std::cout << "face " << a0 << " out of bounds at " << a1 << "," << b1 << std::endl;
                     faceInBounds = false;
 
@@ -195,9 +289,17 @@ private:
                     p1[i0] = -t0*r;
                     p1[i1] = -t1*r;
                     p1[i2] = q[i2] * s;
-                    // p1.normalize();
-                    if (p1[vol_] < 0)
+                    p1.normalize();
+                    if (p1[vol_] < 0) // FLIP?
                         p1 = -p1;
+
+                    // p1 should be on both bounds
+                    assert(std::abs(dotBounds(b0, a0, p1)) < 1e-9);
+                    assert(std::abs(dotBounds(b1, a1, p1)) < 1e-9);
+
+                    // distance to p1 should be greater than the distance to the plane
+                    assert(std::acos(std::abs(p1.normalized().dot(q))) >=
+                           std::asin(std::abs(dotBounds(b0, a0, q))));
 
                     // check that p1 is in bounds of remaining axis
                     Eigen::Matrix<Scalar, 2, 1> dot2(
@@ -213,6 +315,11 @@ private:
                         // dist = std::min(dist, edgeDist);
                         dotMax = std::max(dotMax, std::abs(p1.normalized().dot(q)));
                     } else {
+                        assert(b2 ^ (dot2[1] <= 0));
+
+                        for (b0 = 0 ; b0 < 2 ; ++b0){
+                        for (b1 = 0 ; b1 < 2 ; ++b1){
+                        for (b2 = 0 ; b2 < 2 ; ++b2){
                         int cornerCode = 1 << ((b0 << a0) | (b1 << a1) | (b2 << a2));
                         if (cornerChecked & cornerCode)
                             continue;
@@ -233,18 +340,16 @@ private:
                         cp[vol_] = -ax*by*cz;
                         cp.normalize();
 
-                        // Scalar cornerDist = std::acos(std::abs(q.dot(cp)));
-                        // int corner[3];
-                        // corner[a0] = b0;
-                        // corner[a1] = b1;
-                        // corner[a2] = b2;
-                        // std::cout << "corner "
-                        //           << corner[0]
-                        //           << corner[1]
-                        //           << corner[2]
-                        //           << " = " << cornerDist << std::endl;
-                        // dist = std::min(dist, cornerDist);
+                        // cp should be on both bounds
+                        assert(std::abs(dotBounds(b0, a0, cp)) < 1e-9);
+                        assert(std::abs(dotBounds(b1, a1, cp)) < 1e-9);
+                        assert(std::abs(dotBounds(b2, a2, cp)) < 1e-9);
+
                         dotMax = std::max(dotMax, std::abs(q.dot(cp)));
+                        }
+                        }
+                        }
+                        return std::acos(dotMax);
                     }
                 }
 

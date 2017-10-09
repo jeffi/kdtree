@@ -2,6 +2,33 @@
 #include "test.hpp"
 #include <random>
 
+
+namespace test {
+template <typename _Scalar>
+struct PrintWrap<Eigen::Quaternion<_Scalar>> {
+    const Eigen::Quaternion<_Scalar>& value_;
+    PrintWrap(const Eigen::Quaternion<_Scalar>& v) : value_(v) {}
+    template <typename _Char, typename _Traits>
+    inline friend std::basic_ostream<_Char, _Traits>&
+    operator << (std::basic_ostream<_Char, _Traits>& os, const PrintWrap& v) {
+        // could also use std::boolalpha
+        return os << v.value_.coeffs().transpose();
+    }    
+};
+
+template <typename _Scalar, int _dim>
+struct PrintWrap<Eigen::Matrix<_Scalar, _dim, 1>> {
+    const Eigen::Matrix<_Scalar, _dim, 1>& value_;
+    PrintWrap(const Eigen::Matrix<_Scalar, _dim, 1>& v) : value_(v) {}
+    template <typename _Char, typename _Traits>
+    inline friend std::basic_ostream<_Char, _Traits>&
+    operator << (std::basic_ostream<_Char, _Traits>& os, const PrintWrap& v) {
+        // could also use std::boolalpha
+        return os << v.value_.transpose();
+    }    
+};
+}
+
 template <typename _State>
 struct TestNode {
     _State state_;
@@ -21,41 +48,76 @@ struct TestNodeKey {
     }
 };
 
-template <typename _RNG, typename _Scalar, int _dimensions>
-typename unc::robotics::kdtree::BoundedL2Space<_Scalar,_dimensions>::State
-randomState(
-    _RNG& rng,
-    const unc::robotics::kdtree::BoundedL2Space<_Scalar, _dimensions>& space)
-{
-    typename unc::robotics::kdtree::BoundedL2Space<_Scalar, _dimensions>::State q;
-    for (int i=0 ; i<_dimensions ; ++i) {
-        std::uniform_real_distribution<_Scalar> dist(space.bounds(i, 0), space.bounds(i, 1));
-        q[i] = dist(rng);
+template <typename _Space>
+struct StateSampler {};
+
+template <typename _Scalar, int _dimensions>
+struct StateSampler<unc::robotics::kdtree::BoundedL2Space<_Scalar,_dimensions>> {
+    typedef unc::robotics::kdtree::BoundedL2Space<_Scalar,_dimensions> Space;
+    
+    template <typename _RNG>
+    static typename Space::State
+    randomState(_RNG& rng, const Space& space) {
+        typename Space::State q;
+        for (int i=0 ; i<_dimensions ; ++i) {
+            std::uniform_real_distribution<_Scalar> dist(space.bounds(i, 0), space.bounds(i, 1));
+            q[i] = dist(rng);
+        }
+        return q;
+    }
+};
+
+template <typename _Scalar>
+struct StateSampler<unc::robotics::kdtree::SO3Space<_Scalar>> {
+    typedef unc::robotics::kdtree::SO3Space<_Scalar> Space;
+    template <typename _RNG>
+    static typename Space::State
+    randomState(_RNG& rng, const Space& space) {
+        typename Space::State q;
+        std::uniform_real_distribution<_Scalar> dist01(0, 1);
+        std::uniform_real_distribution<_Scalar> dist2pi(0, 2*M_PI);
+        _Scalar a = dist01(rng);
+        _Scalar b = dist2pi(rng);
+        _Scalar c = dist2pi(rng);
+
+        return Eigen::Quaternion<_Scalar>(
+            std::sqrt(1-a)*std::sin(b),
+            std::sqrt(1-a)*std::cos(b),
+            std::sqrt(a)*std::sin(c),
+            std::sqrt(a)*std::cos(c));
+    }
+};
+
+template <typename _Space, std::intmax_t _num, std::intmax_t _den>
+struct StateSampler<unc::robotics::kdtree::RatioWeightedSpace<_Space, _num, _den>> {
+    typedef unc::robotics::kdtree::RatioWeightedSpace<_Space, _num, _den> Space;
+
+    template <typename _RNG>
+    static typename Space::State
+    randomState(_RNG& rng, const Space& space) {
+        return StateSampler<_Space>::randomState(rng, space);
+    }
+};
+
+template <typename ... _Spaces>
+struct StateSampler<unc::robotics::kdtree::CompoundSpace<_Spaces...>> {
+    typedef unc::robotics::kdtree::CompoundSpace<_Spaces...> Space;
+
+    template <typename _RNG, std::size_t ... I>
+    static typename Space::State
+    compoundRandomState(_RNG& rng, const Space& space, std::index_sequence<I...>)
+    {
+        return typename Space::State(
+            StateSampler<typename std::tuple_element<I, std::tuple<_Spaces...>>::type>
+            ::randomState(rng, std::get<I>(space))...);
     }
 
-    return q;
-}
-
-template <typename _RNG, typename _Scalar>
-typename unc::robotics::kdtree::SO3Space<_Scalar>::State
-randomState(
-    _RNG& rng,
-    const unc::robotics::kdtree::SO3Space<_Scalar>& state)
-{
-    typename unc::robotics::kdtree::SO3Space<_Scalar>::State q;
-    std::uniform_real_distribution<_Scalar> dist01(0, 1);
-    std::uniform_real_distribution<_Scalar> dist2pi(0, 2*M_PI);
-    _Scalar a = dist01(rng);
-    _Scalar b = dist2pi(rng);
-    _Scalar c = dist2pi(rng);
-
-    return Eigen::Quaternion<_Scalar>(
-        std::sqrt(1-a)*std::sin(b),
-        std::sqrt(1-a)*std::cos(b),
-        std::sqrt(a)*std::sin(c),
-        std::sqrt(a)*std::cos(c));
-
-}
+    template <typename _RNG>
+    static typename Space::State
+    randomState(_RNG& rng, const Space& space) {
+        return compoundRandomState(rng, space, std::make_index_sequence<sizeof...(_Spaces)>{});
+    }
+};
 
 template <typename _Scalar, int _dim>
 unc::robotics::kdtree::BoundedL2Space<_Scalar, _dim> makeBoundedL2Space() {
@@ -71,6 +133,28 @@ unc::robotics::kdtree::BoundedL2Space<_Scalar, _dim> makeRatioWeightedBoundedL2S
     return RatioWeightedSpace<BoundedL2Space<_Scalar, _dim>, _num, _den>(
         makeBoundedL2Space<_Scalar, _dim>());
 }
+
+// template <typename _Scalar, std::intmax_t _qWeight, std::intmax_t _tWeight>
+// unc::robotics::kdtree::BoundedSE3Space<_Scalar, _qWeight, _tWeight> makeBoundedSE3Space() {
+//     using namespace unc::robotics::kdtree;
+//     return BoundedSE3Space<_Scalar, _qWeight, _tWeight>(
+//         SO3Space<_Scalar>(),
+//         makeBoundedL2Space<_Scalar, 3>());
+// }
+
+template <typename _Scalar, std::intmax_t _qWeight = 1, std::intmax_t _tWeight = 1>
+// unc::robotics::kdtree::CompoundSpace<
+//     unc::robotics::kdtree::SO3Space<_Scalar>,
+//     unc::robotics::kdtree::BoundedL2Space<_Scalar, 3>>
+unc::robotics::kdtree::BoundedSE3Space<_Scalar, _qWeight, _tWeight>
+makeBoundedSE3Space() {
+    using namespace unc::robotics::kdtree;
+    return BoundedSE3Space<_Scalar, _qWeight, _tWeight>(
+        // return CompoundSpace<SO3Space<_Scalar>, BoundedL2Space<_Scalar, 3>>(
+        SO3Space<_Scalar>(),
+        makeBoundedL2Space<_Scalar, 3>());
+}
+
 
 template <typename Space>
 static void testAdd(const Space& space) {
@@ -91,7 +175,7 @@ static void testAdd(const Space& space) {
     
     for (int i=0 ; i<N ; ++i) {
         // std::cout << "# " << i << std::endl;
-        State q = randomState(rng, space);
+        State q = StateSampler<Space>::randomState(rng, space);
         Distance zero = space.distance(q, q);
         tree.add(TestNode<State>(q, i));
 
@@ -139,8 +223,12 @@ TEST_CASE(KDTree_SO3_add_long_double) {
     testAdd(unc::robotics::kdtree::SO3Space<long double>());
 }
 
-TEST_CASE(KDTree_RatioWeightedRV3_add) {
+TEST_CASE(KDTree_RatioWeightedRV3_add_double) {
     testAdd(makeRatioWeightedBoundedL2Space<double, 3, 11, 3>());
+}
+
+TEST_CASE(KDTree_SE3_add_double) {
+    testAdd(makeBoundedSE3Space<double>());
 }
 
 template <typename Space>
@@ -156,14 +244,14 @@ static void testKNN(const Space& space, std::size_t N, std::size_t Q, std::size_
     std::vector<TestNode<State>> nodes;
     nodes.reserve(N);
     for (std::size_t i=0 ; i<N ; ++i) {
-        nodes.emplace_back(randomState(rng, space), i);
+        nodes.emplace_back(StateSampler<Space>::randomState(rng, space), i);
         tree.add(nodes.back());
     }
 
     std::vector<std::pair<Distance, TestNode<State>>> nearest;
     nearest.reserve(k);
     for (std::size_t i=0 ; i<Q ; ++i) {
-        auto q = randomState(rng, space);
+        auto q = StateSampler<Space>::randomState(rng, space);
         tree.nearest(nearest, q, k);
 
         EXPECT(nearest.size()) == k;
@@ -172,8 +260,18 @@ static void testKNN(const Space& space, std::size_t N, std::size_t Q, std::size_
             return space.distance(q, a.state_) < space.distance(q, b.state_);
         });
 
+        // for (std::size_t j=0 ; j<k ; ++j) {
+        //     std::cout << i << ", " << j << ": got " << nearest[j].first << ", expected "
+        //               << space.distance(q, nodes[j].state_) << std::endl;
+        // }
         for (std::size_t j=0 ; j<k ; ++j) {
+            if (nearest[j].second.name_ != nodes[j].name_) {
+                std::cout << "key: " << test::PrintWrap<State>(q) << "\n"
+                          << "got: " << test::PrintWrap<State>(nearest[j].second.state_) << "\n"
+                          << "exp: " << test::PrintWrap<State>(nodes[j].state_) << std::endl;
+            }
             EXPECT(nearest[j].second.name_) == nodes[j].name_;
+            if (j) EXPECT(nearest[j-1].first) <= nearest[j].first;
         }
     }
 }
@@ -202,9 +300,22 @@ TEST_CASE(KDTree_SO3_nearestK_long_double) {
     testKNN(unc::robotics::kdtree::SO3Space<long double>(), 5000, 500, 20);
 }
 
-TEST_CASE(KDTree_RatioWeightedRV3_nearestK) {
+TEST_CASE(KDTree_RatioWeightedRV3_nearestK_double) {
     testKNN(makeRatioWeightedBoundedL2Space<double, 3, 17, 5>(), 5000, 500, 20);
 }
+
+TEST_CASE(KDTree_SE3_nearestK_double) {
+    testKNN(makeBoundedSE3Space<double>(), 5000, 500, 20);
+}
+
+TEST_CASE(KDTree_SE3_1_10_nearestK_double) {
+    testKNN(makeBoundedSE3Space<double,1,10>(), 5000, 500, 20);
+}
+
+TEST_CASE(KDTree_SE3_10_1_nearestK_double) {
+    testKNN(makeBoundedSE3Space<double,10,1>(), 5000, 500, 20);
+}
+
 
 template <typename Space>
 static void testRNN(const Space& space, std::size_t N, std::size_t Q, typename Space::Distance maxRadius) {
@@ -219,7 +330,7 @@ static void testRNN(const Space& space, std::size_t N, std::size_t Q, typename S
     std::vector<TestNode<State>> nodes;
     nodes.reserve(N);
     for (std::size_t i=0 ; i<N ; ++i) {
-        nodes.emplace_back(randomState(rng, space), i);
+        nodes.emplace_back(StateSampler<Space>::randomState(rng, space), i);
         tree.add(nodes.back());
     }
 
@@ -227,7 +338,7 @@ static void testRNN(const Space& space, std::size_t N, std::size_t Q, typename S
     std::vector<std::pair<Distance, TestNode<State>>> nearest;
     nearest.reserve(N);
     for (std::size_t i=0 ; i<Q ; ++i) {
-        auto q = randomState(rng, space);
+        auto q = StateSampler<Space>::randomState(rng, space);
         tree.nearest(nearest, q, N, maxRadius);
 
         // maxRadius must be small enough that the following assert does not trigger
@@ -246,8 +357,10 @@ static void testRNN(const Space& space, std::size_t N, std::size_t Q, typename S
             return space.distance(q, a.state_) < space.distance(q, b.state_);
         });
 
-        for (std::size_t j=0 ; j<nearest.size() ; ++j)
+        for (std::size_t j=0 ; j<nearest.size() ; ++j) {
             EXPECT(nearest[j].second.name_) == nodes[j].name_;
+            if (j) EXPECT(nearest[j-1].first) <= nearest[j].first;
+        }
 
         total += nearest.size();
     }
@@ -299,7 +412,7 @@ benchmarkKNN(const Space& space, std::size_t N, std::size_t k, _Duration maxDura
     std::vector<TestNode<State>> nodes;
     nodes.reserve(N);
     for (std::size_t i=0 ; i<N ; ++i) {
-        nodes.emplace_back(randomState(rng, space), i);
+        nodes.emplace_back(StateSampler<Space>::randomState(rng, space), i);
         tree.add(nodes.back());
     }
 
@@ -310,7 +423,7 @@ benchmarkKNN(const Space& space, std::size_t N, std::size_t k, _Duration maxDura
     auto start = std::chrono::high_resolution_clock::now();
     for (;;) {
         for (std::size_t i=0 ; i<100 ; ++i) {
-            auto q = randomState(rng, space);
+            auto q = StateSampler<Space>::randomState(rng, space);
             tree.nearest(nearest, q, k);
         }
         count += 100;
@@ -341,11 +454,29 @@ TEST_CASE(benchmark) {
     using namespace std::literals::chrono_literals;
     
     auto result = benchmarkKNNL2<double, 3>(50000, 20, 1s);
-    std::cout << result.first << " queries in " << result.second << " s = "
+    std::cout << "L2Space<double,3>()      "
+              << result.first << " queries in " << result.second << " s = "
               << result.second * 1e6 / result.first << " us/q" << std::endl;
 
     result = benchmarkKNN(SO3Space<double>(), 50000, 20, 1s);
-    std::cout << result.first << " queries in " << result.second << " s = "
+    std::cout << "SO3Space<double>()       "
+              << result.first << " queries in " << result.second << " s = "
               << result.second * 1e6 / result.first << " us/q" << std::endl;
+
+    result = benchmarkKNN(BoundedSE3Space<double, 100, 1>(SO3Space<double>(), makeBoundedL2Space<double,3>()), 50000, 20, 1s);
+    std::cout << "SE3Space<double,100,1>() "
+              << result.first << " queries in " << result.second << " s = "
+              << result.second * 1e6 / result.first << " us/q" << std::endl;
+
+    result = benchmarkKNN(BoundedSE3Space<double>(SO3Space<double>(), makeBoundedL2Space<double,3>()), 50000, 20, 1s);
+    std::cout << "SE3Space<double,1,1>()   "
+              << result.first << " queries in " << result.second << " s = "
+              << result.second * 1e6 / result.first << " us/q" << std::endl;
+
+    result = benchmarkKNN(BoundedSE3Space<double, 1, 100>(SO3Space<double>(), makeBoundedL2Space<double,3>()), 50000, 20, 1s);
+    std::cout << "SE3Space<double,1,100>() "
+              << result.first << " queries in " << result.second << " s = "
+              << result.second * 1e6 / result.first << " us/q" << std::endl;
+
 }
 

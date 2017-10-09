@@ -2,7 +2,7 @@
 #include <random>
 
 template <typename _Space, typename _RNG>
-typename _Space::State randomState(const _Space& space, _RNG& rng);
+typename _Space::State randomState(_RNG& rng, const _Space& space);
 
 template <typename _Scalar, typename _RNG>
 Eigen::Quaternion<_Scalar>
@@ -23,13 +23,13 @@ randomQuaternion(_RNG& rng) {
 
 template <typename _Scalar, typename _RNG>
 typename unc::robotics::kdtree::SO3Space<_Scalar>::State
-randomState(const unc::robotics::kdtree::SO3Space<_Scalar>&, _RNG& rng) {
+randomState(_RNG& rng, const unc::robotics::kdtree::SO3Space<_Scalar>&) {
     return randomQuaternion<_Scalar>(rng);
 }
 
 template <typename _RNG, typename _Scalar, int _dim>
 Eigen::Matrix<_Scalar, _dim, 1>
-randomRVState(const Eigen::Array<_Scalar, _dim, 2>& bounds, _RNG& rng) {
+randomRVState(_RNG& rng, const Eigen::Array<_Scalar, _dim, 2>& bounds) {
     Eigen::Matrix<_Scalar, _dim, 1> q;
     
     for (int i=0 ; i<_dim ; ++i) {
@@ -41,34 +41,34 @@ randomRVState(const Eigen::Array<_Scalar, _dim, 2>& bounds, _RNG& rng) {
 }
 
 template <typename _Scalar, int _dim, typename _RNG>
-typename unc::robotics::kdtree::BoundedEuclideanSpace<_Scalar, _dim>::State
-randomState(const unc::robotics::kdtree::BoundedEuclideanSpace<_Scalar, _dim>& space, _RNG& rng) {
-    return randomRVState(space.bounds(), rng);
+typename unc::robotics::kdtree::BoundedL2Space<_Scalar, _dim>::State
+randomState(_RNG& rng, const unc::robotics::kdtree::BoundedL2Space<_Scalar, _dim>& space) {
+    return randomRVState(rng, space.bounds());
 }
 
 template <typename _Space, std::intmax_t _num, std::intmax_t _den, typename _RNG>
 typename _Space::State
-randomState(const unc::robotics::kdtree::RatioWeightedSpace<_Space, _num, _den>& space, _RNG& rng) {
-    return randomState(*static_cast<const _Space*>(&space), rng);
+randomState(_RNG& rng, const unc::robotics::kdtree::RatioWeightedSpace<_Space, _num, _den>& space) {
+    return randomState(rng, *static_cast<const _Space*>(&space));
 }
 
 template <typename _RNG, typename _Space, std::size_t ... _I>
-auto randomCompoundState(const _Space& space, _RNG& rng, std::index_sequence<_I...>) {
-    return typename _Space::State(randomState(space.template subspace<_I>(), rng)...);
+auto randomCompoundState(_RNG& rng, const _Space& space, std::index_sequence<_I...>) {
+    return typename _Space::State(randomState(rng, std::get<_I>(space))...);
 }
 
 
 template <typename _RNG, typename ... _Spaces>
 typename unc::robotics::kdtree::CompoundSpace<_Spaces...>::State
-randomState(const unc::robotics::kdtree::CompoundSpace<_Spaces...>& space, _RNG& rng) {
-    return randomCompoundState(space, rng, std::make_index_sequence<sizeof...(_Spaces)>{});
+randomState(_RNG& rng, const unc::robotics::kdtree::CompoundSpace<_Spaces...>& space) {
+    return randomCompoundState(rng, space, std::make_index_sequence<sizeof...(_Spaces)>{});
 }
 
 template <typename _RNG, typename _Scalar>
 std::tuple<Eigen::Quaternion<_Scalar>,
            Eigen::Matrix<_Scalar, 3, 1>>
-randomState(const Eigen::Array<_Scalar, 3, 2>& bounds, _RNG& rng) {
+randomState(_RNG& rng, const Eigen::Array<_Scalar, 3, 2>& bounds) {
     Eigen::Quaternion<_Scalar> so = randomQuaternion<_Scalar>(rng);
-    Eigen::Matrix<_Scalar, 3, 1> rv = randomRVState(bounds, rng);
+    Eigen::Matrix<_Scalar, 3, 1> rv = randomRVState(rng, bounds);
     return std::make_tuple(so, rv);
 }

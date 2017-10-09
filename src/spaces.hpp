@@ -66,6 +66,32 @@ struct CompoundDistance<sizeof...(_Spaces), _Spaces...> {
     }
 };
 
+template <int _index, typename ... _Spaces>
+struct CompoundIsValid {
+    typedef std::tuple<typename _Spaces::State...> State;
+    
+    static bool isValid(
+        const std::tuple<_Spaces...>& spaces,
+        const State& q)
+    {
+        return std::get<_index>(spaces).isValid(std::get<_index>(q))
+            && CompoundIsValid<_index+1, _Spaces...>::isValid(spaces, q);
+    }
+};
+
+template <typename ... _Spaces>
+struct CompoundIsValid<sizeof...(_Spaces)-1, _Spaces...> {
+    static constexpr int _index = sizeof...(_Spaces)-1;
+    typedef std::tuple<typename _Spaces::State...> State;
+
+    static bool isValid(
+        const std::tuple<_Spaces...>& spaces,
+        const State& q)
+    {
+        return std::get<_index>(spaces).isValid(std::get<_index>(q));
+    }
+};
+
 } // namespace unc::robotics::kdtree::detail
 
 
@@ -82,13 +108,17 @@ public:
     typedef Eigen::Matrix<_Scalar, _dimensions, 1> State;
     static constexpr int dimensions = _dimensions;
 
+    bool isValid(const State& q) const {
+        return q.allFinite();
+    }
+    
     inline Distance distance(const State& a, const State& b) const {
         return (a - b).norm();
     }
 };
 
 template <typename _Scalar, int _dimensions>
-class BoundedL2Space : public L2Space<_Scalar, _dimensions> {
+class BoundedL2Space : public L2Space<_Scalar, _dimensions> {    
     Eigen::Array<_Scalar, _dimensions, 2> bounds_;
 
     void checkBounds() {
@@ -101,6 +131,8 @@ class BoundedL2Space : public L2Space<_Scalar, _dimensions> {
     }
 
 public:
+    using typename L2Space<_Scalar, _dimensions>::State;
+
     template <typename _Derived>
     BoundedL2Space(const Eigen::DenseBase<_Derived>& bounds)
         : bounds_(bounds)
@@ -116,6 +148,12 @@ public:
         bounds_.col(0) = min;
         bounds_.col(1) = max;
         checkBounds();
+    }
+
+    bool isValid(const State& q) const {
+        return L2Space<_Scalar, _dimensions>::isValid(q)
+            && (bounds_.col(0) <= q).all()
+            && (bounds_.col(1) >= q).all();
     }
 
     const Eigen::Array<_Scalar, _dimensions, 2>& bounds() const {
@@ -137,6 +175,11 @@ public:
     typedef Eigen::Quaternion<_Scalar> State;
     static constexpr int dimensions = 3;
 
+    bool isValid(const State& q) const {
+        // check that the quaternion is normalized
+        return std::abs(1 - q.coeffs().squaredNorm()) < 1e-5;
+    }
+    
     inline Distance distance(const State& a, const State& b) const {
         Distance dot = std::abs(a.coeffs().matrix().dot(b.coeffs().matrix()));
         return dot < 0 ? M_PI_2 : dot > 1 ? 0 : std::acos(dot);
@@ -210,6 +253,15 @@ public:
     typedef std::tuple<typename _Spaces::State...> State;
     static constexpr int dimensions = detail::Sum<int, _Spaces::dimensions...>::value;
     typedef typename detail::SumResult<typename _Spaces::Distance...>::type Distance;
+
+    CompoundSpace(const _Spaces& ... spaces)
+        : spaces_(spaces...)
+    {
+    }
+
+    bool isValid(const State& q) const {
+        return detail::CompoundIsValid<0, _Spaces...>::isValid(spaces_, q);
+    }
 
     Distance distance(const State& a, const State& b) const {
         return detail::CompoundDistance<1, _Spaces...>::accum(

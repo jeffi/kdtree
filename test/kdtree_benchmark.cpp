@@ -24,14 +24,14 @@ void benchmark(const std::string& name, const Space& space, int N, int Q) {
     unc::robotics::kdtree::KDTree<int, Space, IndexKey<State>> tree(IndexKey<State>(nodes), space);
     std::mt19937_64 rng;
     for (int i=0 ; i<N ; ++i) {
-        nodes.push_back(randomState(space, rng));
+        nodes.push_back(randomState(rng, space));
         tree.add(i);
     }
 
     std::vector<State> queries;
     queries.reserve(N);
     for (int i=0 ; i<Q ; ++i)
-        queries.push_back(randomState(space, rng));
+        queries.push_back(randomState(rng, space));
 
 
     typedef std::chrono::high_resolution_clock Clock;
@@ -159,7 +159,7 @@ void benchmarkSE3(const std::string& name, const Eigen::Array<_Scalar, 3, 2>& bo
     SE3KDTree3<int, _Scalar, IndexKey<State>> tree(IndexKey<State>(nodes), bounds);
     std::mt19937_64 rng;
     for (int i=0 ; i<N ; ++i) {
-        nodes.push_back(randomState(bounds, rng));
+        nodes.push_back(randomState(rng, bounds));
         tree.add(i);
         linear.push_back(i);
     }
@@ -167,7 +167,7 @@ void benchmarkSE3(const std::string& name, const Eigen::Array<_Scalar, 3, 2>& bo
     std::vector<State> queries;
     queries.reserve(N);
     for (int i=0 ; i<Q ; ++i)
-        queries.push_back(randomState(bounds, rng));
+        queries.push_back(randomState(rng, bounds));
 
     typedef std::chrono::high_resolution_clock Clock;
     std::vector<int> results;
@@ -193,7 +193,7 @@ void benchmarkSE3(const std::string& name, const Eigen::Array<_Scalar, 3, 2>& bo
               << elapsed/nq << " us/query (q=" << nq << ", elapsed " << elapsed/1000 << " ms, "
               << totalExplored/(double)nq << " avg explored)" << std::endl;
 
-#if 0
+#if 1
     auto linStart = Clock::now();
     for (int i=0 ; i<nq ; ++i) {
         const State& q = queries[i];
@@ -227,7 +227,7 @@ int main(int argc, char *argv[]) {
     
     // benchmark("SO3Space<double>", SO3Space<double>(), N, Q);
 
-    for (int e=-3 ; e<=3 ; ++e) {
+    for (int e=1 ; e<=1 ; ++e) {
         double b = std::pow(10.0, e);
         bounds.col(0) = -b;
         bounds.col(1) = b;
@@ -235,7 +235,7 @@ int main(int argc, char *argv[]) {
         str1 << "SE3Space<double> (1e" << e << ")";
         benchmark(str1.str(), BoundedSE3Space<double>(
                       SO3Space<double>(),
-                      BoundedEuclideanSpace<double, 3>(bounds)), N, 1000);
+                      BoundedL2Space<double, 3>(bounds)), N, 1000);
         std::ostringstream str2;
         str2 << "SE3KDTree<double>(1e" << e << ")";
         benchmarkSE3<double>(str2.str(), bounds, N, 10000);
@@ -243,31 +243,31 @@ int main(int argc, char *argv[]) {
     
     bounds.col(0) = -1;
     bounds.col(1) = 1;
-    benchmark("RVSpace<double, 3> ", BoundedEuclideanSpace<double, 3>(bounds), N, 500000);
+    benchmark("RVSpace<double, 3> ", BoundedL2Space<double, 3>(bounds), N, 500000);
     Eigen::Array<double, 6, 2> bounds6;
     bounds6.col(0) = -1;
     bounds6.col(1) = 1;
-    benchmark("RVSpace<double, 6> ", BoundedEuclideanSpace<double, 6>(bounds6), N, 50000);
+    benchmark("RVSpace<double, 6> ", BoundedL2Space<double, 6>(bounds6), N, 50000);
     
     // bounds.col(0) = -0.01;
     // bounds.col(1) = 0.01;
     // benchmark("SE3Space<double>(-0.01,0.01)", BoundedSE3Space<double>(
     //               SO3Space<double>(),
-    //               BoundedEuclideanSpace<double, 3>(bounds)), N, 1000);
+    //               BoundedL2Space<double, 3>(bounds)), N, 1000);
     // benchmarkSE3<double>("SE3KDTree<double>(-0.01, 0.01)", bounds, N, 10000);
 
     // bounds.col(0) = -1;
     // bounds.col(1) = 1;
     // benchmark("SE3Space<double>(-1,1)", BoundedSE3Space<double>(
     //               SO3Space<double>(),
-    //               BoundedEuclideanSpace<double, 3>(bounds)), N, 100);
+    //               BoundedL2Space<double, 3>(bounds)), N, 100);
     // benchmarkSE3<double>("SE3KDTree<double>(-1, 1)", bounds, N, 10000);
 
     // bounds.col(0) = -100;
     // bounds.col(1) = 100;
     // benchmark("SE3Space<double>(-100,100)", BoundedSE3Space<double>(
     //               SO3Space<double>(),
-    //               BoundedEuclideanSpace<double, 3>(bounds)), N, 1000);
+    //               BoundedL2Space<double, 3>(bounds)), N, 1000);
     // benchmarkSE3<double>("SE3KDTree<double>(-100, 100)", bounds, N, 10000);
 
 
@@ -275,7 +275,7 @@ int main(int argc, char *argv[]) {
     // bounds.col(1) = 1e6;
     // benchmark("SE3Space<double>(-1e6,1e6)", BoundedSE3Space<double>(
     //               SO3Space<double>(),
-    //               BoundedEuclideanSpace<double, 3>(bounds)), N, 1000);
+    //               BoundedL2Space<double, 3>(bounds)), N, 1000);
     // benchmarkSE3<double>("SE3KDTree<double>(-1e6, 1e6)", bounds, N, 10000);
 
     return 0;

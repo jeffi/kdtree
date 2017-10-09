@@ -46,6 +46,46 @@ struct PrintWrap<bool> {
     }    
 };
 
+// helper to print elements of a tuple
+template <int _index, typename ... _Types>
+struct PrintTupleElements {
+    typedef std::tuple<_Types...> Tuple;
+    
+    template <typename _Char, typename _Traits>
+    static void apply(std::basic_ostream<_Char, _Traits>& os, const Tuple& t) {
+        if (_index > 0) os << ", ";
+        os << PrintWrap<typename std::tuple_element<_index, Tuple>::type>(std::get<_index>(t));
+        PrintTupleElements<_index+1, _Types...>::apply(os, t);
+    }
+};
+
+// helper to print elements of a tuple, base case.
+template <typename ... _Types>
+struct PrintTupleElements<sizeof...(_Types), _Types...> {
+    typedef std::tuple<_Types...> Tuple;
+    
+    template <typename _Char, typename _Traits>
+    static void apply(std::basic_ostream<_Char, _Traits>& os, const Tuple& t) {}
+};
+
+// tuples get printed as [<0>, <1>, ...], where <n> is the element at
+// index <n>.
+template <typename ... _Types>
+struct PrintWrap<std::tuple<_Types...>> {
+    typedef std::tuple<_Types...> Tuple;
+    
+    const Tuple& value_;
+    PrintWrap(const Tuple& v) : value_(v) {}
+    
+    template <typename _Char, typename _Traits>
+    inline friend std::basic_ostream<_Char, _Traits>&
+    operator << (std::basic_ostream<_Char, _Traits>& os, const PrintWrap& w) {
+        os << "[";
+        PrintTupleElements<0, _Types...>::apply(os, w.value_);
+        return os << "]";
+    }
+};
+
 
 template <typename _T>
 PrintWrap<_T> printWrap(const _T& t) { return PrintWrap<_T>(t); }
@@ -111,8 +151,20 @@ public:
         g_testCases.push_back(this);
     }
 
+    const std::string& name() const {
+        return name_;
+    }
+
     virtual void testImpl() = 0;
 
+    template <typename _Reason>
+    static void failed(const std::string& name, const _Reason& reason) {
+        std::ostringstream msg;
+        msg.imbue(std::locale(""));
+        msg << name << " \33[31;1mfailed ⚠\33[0m\n\t" << reason << "\n";
+        std::cout << msg.str() << std::flush;
+    }
+    
     bool run() {
         auto assertionsBefore = g_assertionCount.load();
         try {
@@ -131,10 +183,7 @@ public:
             std::cout << msg.str() << std::flush;
             return true;
         } catch (const std::runtime_error& e) {
-            std::ostringstream msg;
-            msg.imbue(std::locale(""));
-            msg << name_ << " \33[31;1mfailed ⚠\33[0m\n\t" << e.what() << "\n";
-            std::cout << msg.str() << std::flush;
+            failed(name_, e.what());
             return false;
         }
     }
@@ -170,15 +219,34 @@ public:
 // }
 
 int main(int argc, char* argv[]) {
-    int run = 0;
+    using namespace test;
+    
+    int testCases;
     int passed = 0;
-    for (test::TestCase *test : test::g_testCases) {
-        ++run;
-        passed += test->run();            
+    if (argc > 1) {
+        testCases = argc - 1;
+        for (int i=1 ; i<argc ; ++i) {
+            std::string name = argv[i];
+            
+            auto it = std::find_if(
+                g_testCases.begin(), g_testCases.end(), [&] (auto t) { return t->name() == name; });
+            
+            if (it == g_testCases.end()) {
+                TestCase::failed(name, "no test found with matching name");
+            } else {
+                passed += (*it)->run();
+            }
+        }
+    } else {
+        testCases = test::g_testCases.size();
+        for (test::TestCase *test : test::g_testCases) {
+            passed += test->run();
+        }
     }
+    
     std::cout << passed << " of "
-              << run << " test" << (run == 1?"":"s") << " passed."
+              << testCases << " test" << (testCases == 1?"":"s") << " passed."
               << std::endl;
-    return run == passed ? 0 : 1;
+    return testCases == passed ? 0 : 1;
 }
 
