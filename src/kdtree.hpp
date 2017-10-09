@@ -530,23 +530,28 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
 
     Scalar distToRegion() {
         const auto& q = key_;
+        int edgesToCheck = 0;
+        
         // check faces
-        bool inAllBounds = true;
         for (int a0 = 0 ; a0 < 3 ; ++a0) {
             Eigen::Matrix<Scalar, 2, 1> dot(dotBounds(0, a0, q), dotBounds(1, a0, q));
             int b0 = dot[0] >= 0;
             if (b0 && dot[1] <= 0)
                 continue; // in bounds
-            inAllBounds = false;
+
             Eigen::Matrix<Scalar, 4, 1> p0 = q;
             p0[3]  -= soBounds_[b0](0, a0) * dot[b0];
             p0[a0] -= soBounds_[b0](1, a0) * dot[b0];
             int a1 = (a0+1)%3;
-            if (dotBounds(0, a1, p0) < 0 || dotBounds(1, a1, p0) > 0)
+            if (dotBounds(1, a1, p0) > 0 || dotBounds(0, a1, p0) < 0) {
+                edgesToCheck |= 1 << ((a0+a1) << 2);
                 continue; // not on face with this axis
+            }
             int a2 = (a0+2)%3;
-            if (dotBounds(0, a2, p0) < 0 || dotBounds(1, a2, p0) > 0)
+            if (dotBounds(1, a2, p0) > 0 || dotBounds(0, a2, p0) < 0) {
+                edgesToCheck |= 1 << ((a0+a2) << 2);
                 continue; // not on face with this axis
+            }
             // the projected point is on this face, the distance to
             // the projected point is the closest point in the bounded
             // region to the query key.  Use asin of the dot product
@@ -557,7 +562,7 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
         }
 
         // if the query point is within all bounds of all 3 axes, then it is within the region.
-        if (inAllBounds)
+        if (edgesToCheck == 0)
             return 0;
 
         int cornerChecked = 0;
@@ -572,7 +577,10 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
         for (int a0 = 0 ; a0 < 3 ; ++a0) {
             int a1 = (a0 + 1)%3;
             int a2 = (a0 + 2)%3;
-                
+
+            if ((edgesToCheck & (1 << ((a0+a1) << 2))) == 0)
+                continue;
+            
             for (int edge = 0 ; edge < 4 ; ++edge) {
                 int b0 = edge & 1;
                 int b1 = edge >> 1;
@@ -586,39 +594,40 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
                 p1[a0] = -t0*r;
                 p1[a1] = -t1*r;
                 p1[a2] = q[a2] * s;
-
-                if (dotBounds(0, a2, p1) >= 0 && dotBounds(1, a2, p1) <= 0) {
+                if (p1[3] < 0)
+                    p1 = -p1;
+                
+                int b2;
+                if ((b2 = dotBounds(0, a2, p1) >= 0) && dotBounds(1, a2, p1) <= 0) {
                     dotMax = std::max(dotMax, std::abs(p1.normalized().dot(q))); // in bounds
                     continue;
                 }
                 
-                for (int b2=0 ; b2<2 ; ++b2) {
-                    int cornerCode = 1 << ((b0 << a0) | (b1 << a1) | (b2 << a2));
-                    if (cornerChecked & cornerCode)
-                        continue;
-                    cornerChecked |= cornerCode;
-                    // edge is not in bounds, use the distance to the corner
-                    Eigen::Matrix<Scalar, 4, 1> p2;
-                    Scalar aw = soBounds_[b0](0, a0);
-                    Scalar ax = soBounds_[b0](1, a0);
-                    Scalar bw = soBounds_[b1](0, a1);
-                    Scalar by = soBounds_[b1](1, a1);
-                    Scalar cw = soBounds_[b2](0, a2);
-                    Scalar cz = soBounds_[b2](1, a2);
+                int cornerCode = 1 << ((b0 << a0) | (b1 << a1) | (b2 << a2));
+                if (cornerChecked & cornerCode)
+                    continue;
+                cornerChecked |= cornerCode;
+                // edge is not in bounds, use the distance to the corner
+                Eigen::Matrix<Scalar, 4, 1> p2;
+                Scalar aw = soBounds_[b0](0, a0);
+                Scalar ax = soBounds_[b0](1, a0);
+                Scalar bw = soBounds_[b1](0, a1);
+                Scalar by = soBounds_[b1](1, a1);
+                Scalar cw = soBounds_[b2](0, a2);
+                Scalar cz = soBounds_[b2](1, a2);
 
-                    p2[a0]   =  aw*by*cz;
-                    p2[a1]   =  ax*bw*cz;
-                    p2[a2]   =  ax*by*cw;
-                    p2[3] = -ax*by*cz;
-                    p2.normalize();
+                p2[a0]   =  aw*by*cz;
+                p2[a1]   =  ax*bw*cz;
+                p2[a2]   =  ax*by*cw;
+                p2[3] = -ax*by*cz;
+                p2.normalize();
 
-                    // // p2 should be on both bounds
-                    // assert(std::abs(dotBounds(b0, a0, p2)) < 1e-7);
-                    // assert(std::abs(dotBounds(b1, a1, p2)) < 1e-7);
-                    // assert(std::abs(dotBounds(b2, a2, p2)) < 1e-7);
+                // // p2 should be on both bounds
+                // assert(std::abs(dotBounds(b0, a0, p2)) < 1e-7);
+                // assert(std::abs(dotBounds(b1, a1, p2)) < 1e-7);
+                // assert(std::abs(dotBounds(b2, a2, p2)) < 1e-7);
             
-                    dotMax = std::max(dotMax, std::abs(q.dot(p2)));
-                }
+                dotMax = std::max(dotMax, std::abs(q.dot(p2)));
             }
         }
         
