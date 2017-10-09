@@ -80,27 +80,22 @@ struct KDSO3Traversal {
     typedef typename Space::Distance Distance;
 
     // copy of the key, since we mutate it
-    State key_;
+    Eigen::Matrix<Scalar, 4, 1> key_;
     std::array<Eigen::Array<Scalar, 2, 3, Eigen::RowMajor>, 2> soBounds_;
     unsigned soDepth_;
     int keyVol_;
 
     KDSO3Traversal(const Space& space, const State& key)
-        : key_(key),
+        : key_(key.coeffs()),
           soDepth_(2),
           keyVol_(so3VolumeIndex(key))
     {
-        if (std::abs(1 - key.coeffs().squaredNorm()) > 1e-5) { // make sure input is normalized
-            std::cout << key.coeffs().squaredNorm() << ": " << key.coeffs().transpose() << std::endl;
-            assert(false);
-        }
-                
         soBounds_[0] = M_SQRT1_2;
         soBounds_[1].colwise() = Eigen::Array<Scalar, 2, 1>(-M_SQRT1_2, M_SQRT1_2);
     }
 
     _Scalar keyDistance(const State& q) {
-        _Scalar dot = std::abs(key_.coeffs().matrix().dot(q.coeffs().matrix()));
+        _Scalar dot = std::abs(key_.dot(q.coeffs().matrix()));
         return dot < 0 ? M_PI_2 : dot > 1 ? 0 : std::acos(dot);
     }
 
@@ -144,14 +139,12 @@ struct KDAddTraversal<BoundedL2Space<_Scalar, _dimensions>>
     }
 };
 
-template <typename Scalar>
+template <typename Scalar, typename _Derived>
 static bool inSoBounds(
     int vol, int axis,
     const std::array<Eigen::Array<Scalar, 2, 3, Eigen::RowMajor>, 2>& soBounds,
-    const Eigen::Quaternion<Scalar>& q)
+    const Eigen::DenseBase<_Derived>& c)
 {
-    const auto& c = q.coeffs();
-        
     Scalar d0 = soBounds[0](0, axis)*c[vol] + soBounds[0](1, axis)*c[(vol + axis + 1)%4];
     Scalar d1 = soBounds[1](0, axis)*c[vol] + soBounds[1](1, axis)*c[(vol + axis + 1)%4];
     
@@ -177,8 +170,8 @@ struct KDAddTraversal<SO3Space<_Scalar>>
         : KDSO3Traversal<Scalar>(space, key)
     {
         assert(space.isValid(key));
-        if (key_.coeffs()[keyVol_] < 0)
-            key_.coeffs() = -key.coeffs();
+        if (key_[keyVol_] < 0)
+            key_ = -key_;
     }
 
     template <typename _Adder, typename _T>
@@ -220,7 +213,7 @@ struct KDAddTraversal<SO3Space<_Scalar>>
             assert(inSoBounds(keyVol_, 1, soBounds_, key_));
             assert(inSoBounds(keyVol_, 2, soBounds_, key_));
                 
-            Scalar dot = mp[0]*key_.coeffs()[keyVol_] + mp[1]*key_.coeffs()[(keyVol_ + soAxis + 1)%4];
+            Scalar dot = mp[0]*key_[keyVol_] + mp[1]*key_[(keyVol_ + soAxis + 1)%4];
             if ((c = p->children_[childNo = (dot > 0)]) == nullptr) {
                 p->children_[childNo] = n;
                 p->debugAxisRemoveMe_ = 22 + axis;
@@ -532,7 +525,7 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
     }
         
     Scalar distToRegion() {
-        const auto& q = key_.coeffs().matrix();
+        const auto& q = key_;
         // check faces
         bool inAllBounds = true;
         for (int a0 = 0 ; a0 < 3 ; ++a0) {
@@ -616,7 +609,7 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
     }
     
     Distance distToRegionOld() {
-        const auto& q = key_.coeffs().matrix();
+        const auto& q = key_;
         assert(q[vol_] >= 0);
         Scalar dotMax = 0; // dist = std::numeric_limits<Scalar>::infinity();
         Scalar qv = q[vol_];
@@ -755,8 +748,8 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
                 // std::cout << c->value_.name_ << " " << soDepth_ << ".5" << std::endl;
                 if (const KDNode<_T> *g = c->children_[keyVol_ >> 1]) {
                     assert(c->debugAxisRemoveMe_ == 21);
-                    if (key_.coeffs()[vol_ = keyVol_] < 0)
-                        key_.coeffs() = -key_.coeffs();
+                    if (key_[vol_ = keyVol_] < 0)
+                        key_ = -key_;
                     nearest(g);
                 }
                 // TODO: can we gain so efficiency by exploring the
@@ -764,8 +757,8 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
                 nearest.update(c);
                 if (const KDNode<_T> *g = c->children_[1 - (keyVol_ >> 1)]) {
                     assert(c->debugAxisRemoveMe_ == 21);
-                    if (key_.coeffs()[vol_ = keyVol_ ^ 2] < 0)
-                        key_.coeffs() = -key_.coeffs();
+                    if (key_[vol_ = keyVol_ ^ 2] < 0)
+                        key_ = -key_;
                     if (nearest.distToRegion() <= nearest.dist())
                         nearest(g);
                 }
@@ -776,23 +769,23 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
                 // std::cout << c->value_.name_ << " " << soDepth_ << ".5" << std::endl;
                 if (const KDNode<_T> *g = c->children_[keyVol_ >> 1]) {
                     assert(c->debugAxisRemoveMe_ == 21);
-                    if (key_.coeffs()[vol_ = keyVol_ ^ 1] < 0)
-                        key_.coeffs() = -key_.coeffs();
+                    if (key_[vol_ = keyVol_ ^ 1] < 0)
+                        key_ = -key_;
                     if (nearest.distToRegion() <= nearest.dist())
                         nearest(g);
                 }
                 nearest.update(c);
                 if (const KDNode<_T> *g = c->children_[1 - (keyVol_ >> 1)]) {
                     assert(c->debugAxisRemoveMe_ == 21);
-                    if (key_.coeffs()[vol_ = keyVol_ ^ 3] < 0)
-                        key_.coeffs() = -key_.coeffs();
+                    if (key_[vol_ = keyVol_ ^ 3] < 0)
+                        key_ = -key_;
                     if (nearest.distToRegion() <= nearest.dist())
                         nearest(g);
                 }
             }
             // setting vol_ to keyVol_ is only needed when part of a compound space
-            if (key_.coeffs()[vol_ = keyVol_] < 0)
-                key_.coeffs() = -key_.coeffs();
+            if (key_[vol_ = keyVol_] < 0)
+                key_ = -key_;
             --soDepth_;
             assert(distToRegion() == 0);
             assert(soDepth_ == 2);
@@ -802,8 +795,8 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
             assert(n->debugAxisRemoveMe_ == 0 || n->debugAxisRemoveMe_ == 22 + axis);
             Eigen::Matrix<Scalar, 2, 1> mp = (soBounds_[0].col(soAxis) + soBounds_[1].col(soAxis))
                 .matrix().normalized();
-            Scalar dot = mp[0]*key_.coeffs()[vol_]
-                +        mp[1]*key_.coeffs()[(vol_ + soAxis + 1)%4];
+            Scalar dot = mp[0]*key_[vol_]
+                +        mp[1]*key_[(vol_ + soAxis + 1)%4];
             ++soDepth_;
             int childNo = (dot > 0);
             if (const KDNode<_T> *c = n->children_[childNo]) {
