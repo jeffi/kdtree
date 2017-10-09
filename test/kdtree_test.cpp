@@ -458,6 +458,11 @@ TEST_CASE(benchmark) {
               << result.first << " queries in " << result.second << " s = "
               << result.second * 1e6 / result.first << " us/q" << std::endl;
 
+    result = benchmarkKNNL2<double, 6>(50000, 20, 1s);
+    std::cout << "L2Space<double,6>()      "
+              << result.first << " queries in " << result.second << " s = "
+              << result.second * 1e6 / result.first << " us/q" << std::endl;
+
     result = benchmarkKNN(SO3Space<double>(), 50000, 20, 1s);
     std::cout << "SO3Space<double>()       "
               << result.first << " queries in " << result.second << " s = "

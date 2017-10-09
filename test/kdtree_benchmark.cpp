@@ -193,7 +193,7 @@ void benchmarkSE3(const std::string& name, const Eigen::Array<_Scalar, 3, 2>& bo
               << elapsed/nq << " us/query (q=" << nq << ", elapsed " << elapsed/1000 << " ms, "
               << totalExplored/(double)nq << " avg explored)" << std::endl;
 
-#if 1
+#if 0
     auto linStart = Clock::now();
     for (int i=0 ; i<nq ; ++i) {
         const State& q = queries[i];
@@ -227,7 +227,7 @@ int main(int argc, char *argv[]) {
     
     // benchmark("SO3Space<double>", SO3Space<double>(), N, Q);
 
-    for (int e=1 ; e<=1 ; ++e) {
+    for (int e=-3 ; e<=3 ; ++e) {
         double b = std::pow(10.0, e);
         bounds.col(0) = -b;
         bounds.col(1) = b;
