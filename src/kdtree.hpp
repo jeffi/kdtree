@@ -94,16 +94,9 @@ struct KDSO3Traversal {
             std::cout << key.coeffs().squaredNorm() << ": " << key.coeffs().transpose() << std::endl;
             assert(false);
         }
-        
-        // TODO: needed?
-        if (key_.coeffs()[keyVol_] < 0)
-            key_.coeffs() = -key_.coeffs();
-        
-        // TODO: M_SQRT_1_2 ?
-        static const Scalar rt = 1 / std::sqrt(static_cast<Scalar>(2));
-
-        soBounds_[0] = rt;
-        soBounds_[1].colwise() = Eigen::Array<Scalar, 2, 1>(-rt, rt);
+                
+        soBounds_[0] = M_SQRT1_2;
+        soBounds_[1].colwise() = Eigen::Array<Scalar, 2, 1>(-M_SQRT1_2, M_SQRT1_2);
     }
 
     _Scalar keyDistance(const State& q) {
