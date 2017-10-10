@@ -502,11 +502,14 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
     using KDSO3Traversal<_Scalar>::soBounds_;
     using KDSO3Traversal<_Scalar>::soDepth_;
     using KDSO3Traversal<_Scalar>::keyVol_;
+    
+    Scalar distToRegionCache_;
 
     State origKey_;
 
     KDNearestTraversal(const Space& space, const State& key)
         : KDSO3Traversal<_Scalar>(space, key),
+          distToRegionCache_(0),
           origKey_(key)
     {
         key_ = rotateCoeffs(key_, keyVol_ + 1);
@@ -529,6 +532,10 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
     }
 
     Scalar distToRegion() {
+        return distToRegionCache_;
+    }
+
+    Scalar computeDistToRegion() {
         const auto& q = key_;
         int edgesToCheck = 0;
         
@@ -825,6 +832,7 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
                     if (key_[3] < 0)
                         key_ = -key_;
                     assert(std::abs(origKey_.coeffs()[keyVol_ ^ 2]) == key_[3]);
+                    distToRegionCache_ = computeDistToRegion();
                     if (nearest.distToRegion() <= nearest.dist())
                         nearest(g);
                 }
@@ -839,6 +847,7 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
                     if (key_[3] < 0)
                         key_ = -key_;
                     assert(std::abs(origKey_.coeffs()[keyVol_ ^ 1]) == key_[3]);
+                    distToRegionCache_ = computeDistToRegion();
                     if (nearest.distToRegion() <= nearest.dist())
                         nearest(g);
                 }
@@ -849,6 +858,7 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
                     if (key_[3] < 0)
                         key_ = -key_;
                     assert(std::abs(origKey_.coeffs()[keyVol_ ^ 3]) == key_[3]);
+                    distToRegionCache_ = computeDistToRegion();
                     if (nearest.distToRegion() <= nearest.dist())
                         nearest(g);
                 }
@@ -856,6 +866,7 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
             // setting vol_ to keyVol_ is only needed when part of a compound space
             // if (key_[vol_ = keyVol_] < 0)
             //     key_ = -key_;
+            distToRegionCache_ = 0;
             key_ = rotateCoeffs(origKey_.coeffs(), keyVol_ + 1);
             if (key_[3] < 0)
                 key_ = -key_;
@@ -891,8 +902,11 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
             if (const KDNode<_T> *c = n->children_[1-childNo]) {
                 Eigen::Matrix<Scalar, 2, 1> tmp = soBounds_[childNo].col(soAxis);
                 soBounds_[childNo].col(soAxis) = mp;
+                Scalar oldDistToRegion = distToRegionCache_;
+                distToRegionCache_ = computeDistToRegion();
                 if (nearest.distToRegion() <= nearest.dist())
                     nearest(c);
+                distToRegionCache_ = oldDistToRegion;
                 soBounds_[childNo].col(soAxis) = tmp;
             }
             --soDepth_;
