@@ -433,6 +433,41 @@ benchmarkKNN(const Space& space, std::size_t N, std::size_t k, _Duration maxDura
     }
 }
 
+template <typename Space, typename _Duration>
+static std::pair<std::size_t, double>
+benchmarkKNNLinear(const Space& space, std::size_t N, std::size_t k, _Duration maxDuration) {
+    using namespace unc::robotics::kdtree;
+
+    typedef typename Space::State State;
+    typedef typename Space::Distance Distance;
+
+    KDTree<TestNode<State>, Space, TestNodeKey> tree(TestNodeKey(), space);
+    
+    std::mt19937_64 rng;
+    std::vector<TestNode<State>> nodes;
+    nodes.reserve(N);
+    for (std::size_t i=0 ; i<N ; ++i)
+        nodes.emplace_back(StateSampler<Space>::randomState(rng, space), i);
+
+    std::vector<std::pair<Distance, TestNode<State>>> nearest;
+    nearest.reserve(k);
+    std::chrono::high_resolution_clock::duration maxElapsed = maxDuration;
+    std::size_t count = 0;
+    auto start = std::chrono::high_resolution_clock::now();
+    for (;;) {
+        for (std::size_t i=0 ; i<100 ; ++i) {
+            auto q = StateSampler<Space>::randomState(rng, space);
+            std::partial_sort(nodes.begin(), nodes.begin() + k, nodes.end(), [&q, &space] (auto& a, auto& b) {
+                return space.distance(q, a.state_) < space.distance(q, b.state_);
+            });
+        }
+        count += 100;
+        auto elapsed = std::chrono::high_resolution_clock::now() - start;
+        if (elapsed > maxElapsed)
+            return std::make_pair(count, std::chrono::duration<double>(elapsed).count());
+    }
+}
+
 
 template <typename _Scalar, int _dim, typename _Duration>
 static std::pair<std::size_t, double>
@@ -449,37 +484,77 @@ benchmarkKNNL2(std::size_t N, std::size_t k, _Duration maxDuration) {
     return benchmarkKNN(space, N, k, maxDuration);
 }
 
+template <typename _Scalar, int _dim, typename _Duration>
+static std::pair<std::size_t, double>
+benchmarkKNNL2Linear(std::size_t N, std::size_t k, _Duration maxDuration) {
+    using namespace unc::robotics::kdtree;
+
+    typedef BoundedL2Space<_Scalar, _dim> Space;
+
+    Eigen::Array<_Scalar, _dim, 2> bounds;
+    bounds.col(0) = -1;
+    bounds.col(1) = 1;
+    Space space((bounds));
+
+    return benchmarkKNNLinear(space, N, k, maxDuration);
+}
+
 TEST_CASE(benchmark) {
     using namespace unc::robotics::kdtree;
     using namespace std::literals::chrono_literals;
     
     auto result = benchmarkKNNL2<double, 3>(50000, 20, 1s);
-    std::cout << "L2Space<double,3>()      "
+    std::cout << "L2Space<double,3>()        "
+              << result.first << " queries in " << result.second << " s = "
+              << result.second * 1e6 / result.first << " us/q" << std::endl;
+
+    result = benchmarkKNNL2Linear<double, 3>(50000, 20, 1s);
+    std::cout << "L2Space<double,3>() Linear "
               << result.first << " queries in " << result.second << " s = "
               << result.second * 1e6 / result.first << " us/q" << std::endl;
 
     result = benchmarkKNNL2<double, 6>(50000, 20, 1s);
-    std::cout << "L2Space<double,6>()      "
+    std::cout << "L2Space<double,6>()        "
               << result.first << " queries in " << result.second << " s = "
               << result.second * 1e6 / result.first << " us/q" << std::endl;
 
     result = benchmarkKNN(SO3Space<double>(), 50000, 20, 1s);
-    std::cout << "SO3Space<double>()       "
+    std::cout << "SO3Space<double>()         "
+              << result.first << " queries in " << result.second << " s = "
+              << result.second * 1e6 / result.first << " us/q" << std::endl;
+
+    result = benchmarkKNNLinear(SO3Space<double>(), 50000, 20, 1s);
+    std::cout << "SO3Space<double>() Linear  "
               << result.first << " queries in " << result.second << " s = "
               << result.second * 1e6 / result.first << " us/q" << std::endl;
 
     result = benchmarkKNN(BoundedSE3Space<double, 100, 1>(SO3Space<double>(), makeBoundedL2Space<double,3>()), 50000, 20, 1s);
-    std::cout << "SE3Space<double,100,1>() "
+    std::cout << "SE3Space<double,100,1>()   "
+              << result.first << " queries in " << result.second << " s = "
+              << result.second * 1e6 / result.first << " us/q" << std::endl;
+
+    result = benchmarkKNNLinear(BoundedSE3Space<double, 100, 1>(SO3Space<double>(), makeBoundedL2Space<double,3>()), 50000, 20, 1s);
+    std::cout << "SE3Space<double,100,1>() L "
               << result.first << " queries in " << result.second << " s = "
               << result.second * 1e6 / result.first << " us/q" << std::endl;
 
     result = benchmarkKNN(BoundedSE3Space<double>(SO3Space<double>(), makeBoundedL2Space<double,3>()), 50000, 20, 1s);
-    std::cout << "SE3Space<double,1,1>()   "
+    std::cout << "SE3Space<double,1,1>()     "
+              << result.first << " queries in " << result.second << " s = "
+              << result.second * 1e6 / result.first << " us/q" << std::endl;
+
+    result = benchmarkKNNLinear(BoundedSE3Space<double>(SO3Space<double>(), makeBoundedL2Space<double,3>()), 50000, 20, 1s);
+    std::cout << "SE3Space<double,1,1>() Lin "
               << result.first << " queries in " << result.second << " s = "
               << result.second * 1e6 / result.first << " us/q" << std::endl;
 
     result = benchmarkKNN(BoundedSE3Space<double, 1, 100>(SO3Space<double>(), makeBoundedL2Space<double,3>()), 50000, 20, 1s);
-    std::cout << "SE3Space<double,1,100>() "
+    std::cout << "SE3Space<double,1,100>()   "
+              << result.first << " queries in " << result.second << " s = "
+              << result.second * 1e6 / result.first << " us/q" << std::endl;
+
+    result = benchmarkKNNLinear(BoundedSE3Space<double, 1, 100>(SO3Space<double>(), makeBoundedL2Space<double,3>()), 50000, 20, 1s);
+    std::cout << "SE3Space<double,1,100>() L "
               << result.first << " queries in " << result.second << " s = "
               << result.second * 1e6 / result.first << " us/q" << std::endl;
 
