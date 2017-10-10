@@ -22,6 +22,20 @@ template <typename _T, _T _a, _T _b, _T ... _rest>
 struct Sum<_T, _a, _b, _rest...> { static constexpr _T value = Sum<_T, _a + _b, _rest...>::value; };
 
 
+template <int _index, typename ... _Spaces>
+struct CompoundDimensions {
+    inline static unsigned accum(const std::tuple<_Spaces...>& spaces, unsigned sum) {
+        return accum<_index+1>(spaces, sum + std::get<_index>(spaces).dimensions());
+    }
+};
+
+template <typename ... _Spaces>
+struct CompoundDimensions<sizeof...(_Spaces), _Spaces...> {
+    inline static unsigned accum(const std::tuple<_Spaces...>& spaces, unsigned sum) {
+        return sum;
+    }
+};
+
 // Template to compute the result type of a sumation of arbitrary
 // scalars.  This follows standard C++ type promotion rules,
 // e.g. float+float+double => double, etc...
@@ -106,13 +120,53 @@ public:
     
     typedef _Scalar Distance;
     typedef Eigen::Matrix<_Scalar, _dimensions, 1> State;
-    static constexpr int dimensions = _dimensions;
 
-    bool isValid(const State& q) const {
-        return q.allFinite();
+    constexpr unsigned dimensions() const { return _dimensions; }
+
+    template <typename _Derived>
+    bool isValid(const Eigen::MatrixBase<_Derived>& q) const {
+        return q.rows() == _dimensions && q.cols() == 1 && q.allFinite();
     }
+
+    template <typename _Derived1, typename _Derived2>
+    inline Distance distance(
+        const Eigen::MatrixBase<_Derived1>& a,
+        const Eigen::MatrixBase<_Derived2>& b) const
+    {
+        return (a - b).norm();
+    }
+};
+
+template <typename _Scalar>
+class L2Space<_Scalar, Eigen::Dynamic> {
+public:
+    static_assert(std::is_floating_point<_Scalar>::value, "scalar type must be a floating point type");
+
+    typedef _Scalar Distance;
+    typedef Eigen::Matrix<_Scalar, Eigen::Dynamic, 1> State;
+
+    unsigned dimensions_;
     
-    inline Distance distance(const State& a, const State& b) const {
+    unsigned dimensions() const {
+        return dimensions_;
+    }
+
+    L2Space(unsigned dimensions)
+        : dimensions_(dimensions)
+    {
+        assert(dimensions_ > 0);
+    }
+
+    template <typename _Derived>
+    bool isValid(const Eigen::MatrixBase<_Derived>& q) const {
+        return q.rows() == dimensions_ && q.cols() == 1 && q.allFinite();
+    }
+
+    template <typename _Derived1, typename _Derived2>
+    inline Distance distance(
+        const Eigen::MatrixBase<_Derived1>& a,
+        const Eigen::MatrixBase<_Derived2>& b) const
+    {
         return (a - b).norm();
     }
 };
@@ -127,7 +181,7 @@ class BoundedL2Space : public L2Space<_Scalar, _dimensions> {
         // make sure that min bounds < max bounds
         assert((bounds_.col(0) < bounds_.col(1)).all());
         // make sure that all bounds are finite (and thus bounded)
-        assert(((bounds_.col(1) - bounds_.col(0)) < std::numeric_limits<_Scalar>::infinity()).all());
+        assert((bounds_.col(1) - bounds_.col(0)).allFinite());
     }
 
 public:
@@ -150,7 +204,8 @@ public:
         checkBounds();
     }
 
-    bool isValid(const State& q) const {
+    template <typename _Derived>
+    bool isValid(const Eigen::MatrixBase<_Derived>& q) const {
         return L2Space<_Scalar, _dimensions>::isValid(q)
             && (bounds_.col(0) <= q).all()
             && (bounds_.col(1) >= q).all();
@@ -167,20 +222,80 @@ public:
 };
 
 template <typename _Scalar>
+class BoundedL2Space<_Scalar, Eigen::Dynamic> : public L2Space<_Scalar, Eigen::Dynamic> {
+    Eigen::Array<_Scalar, Eigen::Dynamic, 2> bounds_;
+
+    void checkBounds() {
+        // check for NaN
+        assert((bounds_ == bounds_).all());
+        // make sure that min bounds < max bounds
+        assert((bounds_.col(0) < bounds_.col(1)).all());
+        // make sure that all bounds are finite (and thus bounded)
+        assert((bounds_.col(1) - bounds_.col(0)).allFinite());
+    }
+
+public:
+    using typename L2Space<_Scalar, Eigen::Dynamic>::State;
+
+    template <typename _Derived>
+    BoundedL2Space(unsigned dimensions, const Eigen::DenseBase<_Derived>& bounds)
+        : L2Space<_Scalar, Eigen::Dynamic>(dimensions),
+          bounds_(bounds)
+    {
+        checkBounds();
+    }
+
+    template <typename _DerivedMin, typename _DerivedMax>
+    BoundedL2Space(
+        unsigned dimensions,
+        const Eigen::DenseBase<_DerivedMin>& min,
+        const Eigen::DenseBase<_DerivedMax>& max)
+        : L2Space<_Scalar, Eigen::Dynamic>(dimensions)
+    {
+        bounds_.col(0) = min;
+        bounds_.col(1) = max;
+        checkBounds();
+    }
+
+    template <typename _Derived>
+    bool isValid(const Eigen::MatrixBase<_Derived>& q) const {
+        return L2Space<_Scalar, Eigen::Dynamic>::isValid(q)
+            && (bounds_.col(0) <= q).all()
+            && (bounds_.col(1) >= q).all();
+    }
+
+    const Eigen::Array<_Scalar, Eigen::Dynamic, 2>& bounds() const {
+        return bounds_;
+    }
+
+    template <typename _Index>
+    _Scalar bounds(_Index dim, _Index j) const {
+        return bounds_(dim, j);
+    }
+};
+
+
+template <typename _Scalar>
 class SO3Space {
 public:
     static_assert(std::is_floating_point<_Scalar>::value, "scalar type must be a floating point type");
 
     typedef _Scalar Distance;
     typedef Eigen::Quaternion<_Scalar> State;
-    static constexpr int dimensions = 3;
 
-    bool isValid(const State& q) const {
+    constexpr unsigned dimensions() const { return 3; }
+
+    template <typename _Derived>
+    bool isValid(const Eigen::QuaternionBase<_Derived>& q) const {
         // check that the quaternion is normalized
         return std::abs(1 - q.coeffs().squaredNorm()) < 1e-5;
     }
-    
-    inline Distance distance(const State& a, const State& b) const {
+
+    template <typename _Derived1, typename _Derived2>
+    inline Distance distance(
+        const Eigen::QuaternionBase<_Derived1>& a,
+        const Eigen::QuaternionBase<_Derived2>& b) const
+    {
         Distance dot = std::abs(a.coeffs().matrix().dot(b.coeffs().matrix()));
         return dot < 0 ? M_PI_2 : dot > 1 ? 0 : std::acos(dot);
     }
@@ -206,10 +321,10 @@ public:
     {
     }
 
-    inline typename _Space::Distance distance(
-        const typename _Space::State& a,
-        const typename _Space::State& b) const
-    {
+    // TODO: tighten the bounds on the template parameters to match
+    // that of _Space.
+    template <typename _A, typename _B>
+    inline typename _Space::Distance distance(const _A& a, const _B& b) const {
         return _Space::distance(a, b) * num / den;
     }
 };
@@ -221,7 +336,7 @@ class WeightedSpace : public _Space {
 public:
     using _Space::_Space;
 
-    WeightedSpace(const _Space& space, typename _Space::Distance weight)
+    WeightedSpace(typename _Space::Distance weight, const _Space& space)
         : _Space(space), weight_(weight)
     {
         assert(weight == weight); // no NaNs
@@ -229,10 +344,12 @@ public:
         assert(weight != std::numeric_limits<typename _Space::Distance>::infinity()); // finite
     }
 
-    inline typename _Space::Distance distance(
-        const typename _Space::State& a,
-        const typename _Space::State& b) const
-    {
+    inline typename _Space::Distance weight() const {
+        return weight_;
+    }
+
+    template <typename _A, typename _B>
+    inline typename _Space::Distance distance(const _A& a, const _B& b) const {
         return _Space::distance(a, b) * weight_;
     }
 };
@@ -251,7 +368,7 @@ class CompoundSpace {
 
 public:
     typedef std::tuple<typename _Spaces::State...> State;
-    static constexpr int dimensions = detail::Sum<int, _Spaces::dimensions...>::value;
+    // static constexpr int dimensions = detail::Sum<int, _Spaces::dimensions...>::value;
     typedef typename detail::SumResult<typename _Spaces::Distance...>::type Distance;
 
     CompoundSpace(const _Spaces& ... spaces)
@@ -259,11 +376,20 @@ public:
     {
     }
 
-    bool isValid(const State& q) const {
+    unsigned dimensions() const {
+        return detail::CompoundDimensions<1, _Spaces...>::accum(
+            spaces_, std::get<0>(spaces_).dimensions());
+    }
+
+    // TODO: tighten bounds of template parameter
+    template <typename _Q>
+    bool isValid(const _Q& q) const {
         return detail::CompoundIsValid<0, _Spaces...>::isValid(spaces_, q);
     }
 
-    Distance distance(const State& a, const State& b) const {
+    // TODO: tighten bounds of template parameters
+    template <typename _A, typename _B>
+    Distance distance(const _A& a, const _B& b) const {
         return detail::CompoundDistance<1, _Spaces...>::accum(
             spaces_, a, b,
             std::get<0>(spaces_).distance(std::get<0>(a), std::get<0>(b)));
