@@ -158,10 +158,12 @@ public:
     virtual void testImpl() = 0;
 
     template <typename _Reason>
-    static void failed(const std::string& name, const _Reason& reason) {
+    static void failed(const std::string& name, std::uintmax_t nAsserts, const _Reason& reason) {
         std::ostringstream msg;
         msg.imbue(std::locale(""));
-        msg << name << " \33[31;1mfailed ⚠\33[0m\n\t" << reason << "\n";
+        msg << name << " \33[31;1mfailed ⚠\33[0m  after "
+            << nAsserts << " assertion" << (nAsserts == 1 ? "" : "s") << "\n\t"
+            << reason << "\n";
         std::cout << msg.str() << std::flush;
     }
     
@@ -183,7 +185,7 @@ public:
             std::cout << msg.str() << std::flush;
             return true;
         } catch (const std::runtime_error& e) {
-            failed(name_, e.what());
+            failed(name_, g_assertionCount.load() - assertionsBefore - 1, e.what());
             return false;
         }
     }
@@ -232,7 +234,7 @@ int main(int argc, char* argv[]) {
                 g_testCases.begin(), g_testCases.end(), [&] (auto t) { return t->name() == name; });
             
             if (it == g_testCases.end()) {
-                TestCase::failed(name, "no test found with matching name");
+                TestCase::failed(name, 0, "no test found with matching name");
             } else {
                 passed += (*it)->run();
             }

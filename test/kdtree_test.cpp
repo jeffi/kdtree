@@ -46,6 +46,11 @@ struct TestNodeKey {
     inline const _State& operator() (const TestNode<_State>& node) const {
         return node.state_;
     }
+
+    template <typename _State>
+    inline const _State& operator() (const TestNode<_State>* node) const {
+        return node->state_;
+    }
 };
 
 template <typename _Space>
@@ -316,6 +321,71 @@ TEST_CASE(KDTree_SE3_10_1_nearestK_double) {
     testKNN(makeBoundedSE3Space<double,10,1>(), 5000, 500, 20);
 }
 
+template <typename Space>
+static void testRemove(const Space& space, std::size_t N) {
+    using namespace unc::robotics::kdtree;
+
+    typedef typename Space::State State;
+    typedef typename Space::Distance Distance;
+
+    KDTree<TestNode<State>*, Space, TestNodeKey> tree(TestNodeKey(), space);
+
+    std::mt19937_64 rng;
+    std::vector<TestNode<State>> nodes;
+    std::vector<std::size_t> removeOrder;
+    nodes.reserve(N);
+    for (std::size_t i=0 ; i<N ; ++i) {
+        nodes.emplace_back(StateSampler<Space>::randomState(rng, space), i);
+        removeOrder.push_back(i);
+    }
+
+    // std::vector<std::size_t> removeOrder;
+    // std::generate_n(std::back_inserter(removeOrder), N, [&] { return removeOrder.size(); });
+
+    for (std::size_t i=0 ; i<N ; ++i)
+        tree.add(&nodes[i]);
+
+    std::shuffle(removeOrder.begin(), removeOrder.end(), rng);
+
+    EXPECT(nodes.size()) == N;
+    
+    std::vector<std::pair<Distance, TestNode<State>*>> nearest;
+    nearest.reserve(N);
+    for (std::size_t i=N ; i-->0 ; ) {
+        // first attempt should remove it, and return true
+        EXPECT(tree.remove(&nodes[removeOrder[i]])) == true;
+
+        // if removal was successful, then the size should be decreased by 1
+        EXPECT(tree.size()) == i;
+
+        // second attempte should find that it was already removed, and return false
+        EXPECT(tree.remove(&nodes[removeOrder[i]])) == false;
+
+        // now check that a nearest query (for all elements) does not
+        // return any of the removed elements.
+        auto q = StateSampler<Space>::randomState(rng, space);
+        tree.nearest(nearest, q, N);
+
+        EXPECT(nearest.size()) == i;
+        
+        int n = nodes[removeOrder[i]].name_;
+        bool found = std::any_of(nearest.begin(), nearest.end(), [n] (auto& p) { return p.second->name_ == n; });
+        EXPECT(found) == false;
+    }
+
+    // TODO: need to check remove->add since we reuse nodes internally
+    
+    // TODO: test when the same node is added twice, and removed once, then again.
+    // TODO: do should we detect and reject the same node being added twice?
+    
+    // TODO: remove should also blank out the value if possible for
+    // when _T is shared_ptr or something in which its destruction
+    // will have important side-effects.
+}
+
+TEST_CASE(KDTree_SE3_remove_double) {
+    testRemove(makeBoundedSE3Space<double>(), 5000);
+}
 
 template <typename Space>
 static void testRNN(const Space& space, std::size_t N, std::size_t Q, typename Space::Distance maxRadius) {
