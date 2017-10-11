@@ -1205,9 +1205,6 @@ struct KDNearestBase {
 
     const std::vector<unsigned>& axisCache_;
     
-    _Space space_; // TODO: remove (not needed, as KDNearestTraversal specialization has the info)
-    typename _Space::State key_; // TODO: remove
-
     inline KDNearestBase(
         const _Space& space,
         const typename _Space::State& key,
@@ -1217,9 +1214,7 @@ struct KDNearestBase {
         : traversal_(space, key),
           tToKey_(tToKey),
           dist_(dist),
-          axisCache_(axisCache),
-          space_(space), // TODO: remvoe
-          key_(key) // TODO: remove
+          axisCache_(axisCache)
     {
     }
 
@@ -1302,8 +1297,6 @@ struct KDNearestK : KDNearestBase<KDNearestK<_Space,_T,_TtoKey>, _Space, _T, _Tt
     }
 
     void updateImpl(Distance d, const KDNode<_T>* n) {
-        // assert(nearest_.size() <= k_);
-        // assert(std::is_heap(nearest_.begin(), nearest_.end(), DistValuePairCompare())); // TODO: REMOVE
         if (nearest_.size() == k_) {
             std::pop_heap(nearest_.begin(), nearest_.end(), DistValuePairCompare());
             nearest_.pop_back();
@@ -1312,8 +1305,6 @@ struct KDNearestK : KDNearestBase<KDNearestK<_Space,_T,_TtoKey>, _Space, _T, _Tt
         std::push_heap(nearest_.begin(), nearest_.end(), DistValuePairCompare());
         if (nearest_.size() == k_)
             this->dist_ = nearest_[0].first;
-        // assert(nearest_.size() <= k_);
-        // assert(std::is_heap(nearest_.begin(), nearest_.end(), DistValuePairCompare())); // TODO: REMOVE
     }
 };
 
