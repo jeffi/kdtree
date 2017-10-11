@@ -1208,8 +1208,7 @@ struct KDNearestBase {
     _Space space_; // TODO: remove (not needed, as KDNearestTraversal specialization has the info)
     typename _Space::State key_; // TODO: remove
 
-    // TODO: inline
-    KDNearestBase(
+    inline KDNearestBase(
         const _Space& space,
         const typename _Space::State& key,
         _TtoKey tToKey,
@@ -1259,8 +1258,7 @@ struct KDNearest1 : KDNearestBase<KDNearest1<_Space,_T,_TtoKey>, _Space, _T, _Tt
 
     const KDNode<_T>* nearest_;
 
-    // TODO: inline
-    KDNearest1(
+    inline KDNearest1(
         const _Space& space, const typename _Space::State& key, _TtoKey tToKey,
         const std::vector<unsigned>& axisCache)
         : KDNearestBase<KDNearest1, _Space, _T, _TtoKey>(space, key, tToKey, axisCache),
@@ -1288,8 +1286,7 @@ struct KDNearestK : KDNearestBase<KDNearestK<_Space,_T,_TtoKey>, _Space, _T, _Tt
     std::size_t k_;
     std::vector<std::pair<Distance, _T>>& nearest_;
 
-    // TODO: inline
-    KDNearestK(
+    inline KDNearestK(
         std::vector<std::pair<Distance, _T>>& nearest,
         std::size_t k,
         Distance r,
