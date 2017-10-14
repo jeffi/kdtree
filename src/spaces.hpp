@@ -2,6 +2,7 @@
 #ifndef UNC_ROBOTICS_KDTREE_SPACES_HPP
 #define UNC_ROBOTICS_KDTREE_SPACES_HPP
 
+#include <ratio>
 #include <tuple>
 #include <Eigen/Dense>
 
