@@ -18,13 +18,9 @@ namespace detail {
 template <typename _T>
 struct KDNode {
     _T value_;
-    std::array<KDNode*, 2> children_;
+    std::array<KDNode*, 2> children_{};
 
-    KDNode(const _T& v)
-        : value_(v),
-          children_{{nullptr, nullptr}}
-    {
-    }
+    KDNode(const _T& v) : value_(v) {}
 
     ~KDNode() {
         delete children_[0];
@@ -35,13 +31,9 @@ struct KDNode {
 template <typename _T>
 struct KDValueSplitNode {
     _T value_;
-    std::array<KDValueSplitNode*, 2> children_;
+    std::array<KDValueSplitNode*, 2> children_{};
 
-    KDValueSplitNode(const _T& v)
-        : value_(v),
-          children_{{nullptr, nullptr}}
-    {
-    }
+    KDValueSplitNode(const _T& v) : value_(v) {}
 
     ~KDValueSplitNode() {
         delete children_[0];
@@ -61,12 +53,11 @@ struct KDTreeBase {
     std::vector<unsigned> axisCache_;
     std::unordered_set<const KDNode<_T>*> removedSet_;
 
-    std::size_t size_;
+    std::size_t size_ = 0;
 
     inline KDTreeBase(_TtoKey tToKey, const _Space& space)
         : space_(space),
-          tToKey_(tToKey),
-          size_(0)
+          tToKey_(tToKey)
     {
         axisCache_.reserve(32);
     }
@@ -686,13 +677,12 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
     using KDSO3Traversal<_Scalar>::soDepth_;
     using KDSO3Traversal<_Scalar>::keyVol_;
     
-    Scalar distToRegionCache_;
+    Scalar distToRegionCache_ = 0;
 
     State origKey_;
 
     KDNearestTraversal(const Space& space, const State& key)
         : KDSO3Traversal<_Scalar>(space, key),
-          distToRegionCache_(0),
           origKey_(key)
     {
         key_ = rotateCoeffs(key_, keyVol_ + 1);
@@ -1453,12 +1443,11 @@ class KDTree : private detail::KDTreeBase<_T, _Space, _TtoKey> {
     typedef typename Space::State Key;
     typedef typename Space::Distance Distance;
 
-    Node *root_;
+    Node *root_ = nullptr;
 
 public:
     KDTree(_TtoKey tToKey, const Space& space = _Space())
-        : detail::KDTreeBase<_T, _Space, _TtoKey>(tToKey, space),
-          root_(nullptr)
+        : detail::KDTreeBase<_T, _Space, _TtoKey>(tToKey, space)
     {
     }
 
