@@ -56,7 +56,7 @@ struct KDTreeBase {
 
     std::size_t size_ = 0;
 
-    inline KDTreeBase(_TtoKey& tToKey, const _Space& space)
+    inline KDTreeBase(const _TtoKey& tToKey, const _Space& space)
         : space_(space),
           tToKey_(tToKey)
     {
@@ -1426,7 +1426,7 @@ class KDTree : private detail::KDTreeBase<_T, _Space, _TtoKey> {
     Node *root_ = nullptr;
 
 public:
-    KDTree(_TtoKey tToKey, const Space& space = _Space())
+    KDTree(const _TtoKey& tToKey, const Space& space = _Space())
         : detail::KDTreeBase<_T, _Space, _TtoKey>(tToKey, space)
     {
     }
@@ -1446,11 +1446,11 @@ public:
         delete root_;
     }
 
-    inline std::size_t size() const {
+    inline constexpr std::size_t size() const {
         return this->size_;
     }
 
-    inline bool empty() const {
+    inline constexpr bool empty() const {
         return size() == 0;
     }
 
