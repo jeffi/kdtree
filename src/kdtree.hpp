@@ -3,6 +3,7 @@
 #define UNC_ROBOTICS_KDTREE_KDTREE_HPP
 
 #include "spaces.hpp"
+#include "_bits.hpp"
 #include <array>
 #include <vector>
 #include <unordered_set>
@@ -55,7 +56,7 @@ struct KDTreeBase {
 
     std::size_t size_ = 0;
 
-    inline KDTreeBase(_TtoKey tToKey, const _Space& space)
+    inline KDTreeBase(_TtoKey& tToKey, const _Space& space)
         : space_(space),
           tToKey_(tToKey)
     {
@@ -129,19 +130,6 @@ struct KDBoundedL2Traversal<_Scalar, Eigen::Dynamic> {
         return (bounds_.col(1) - bounds_.col(0)).maxCoeff(axis);
     }
 };
-
-
-template <typename _Derived>
-unsigned so3VolumeIndex(const Eigen::MatrixBase<_Derived>& q) {
-    unsigned index;
-    q.array().abs().maxCoeff(&index);
-    return index;
-}
-
-template <typename _Scalar>
-unsigned so3VolumeIndex(const Eigen::Quaternion<_Scalar>& q) {
-    return so3VolumeIndex(q.coeffs());
-}
 
 template <typename _Scalar>
 struct KDSO3Traversal {
@@ -1376,26 +1364,18 @@ template <typename _T, typename _Space, typename _TtoKey>
 struct KDNearest1 : KDNearestBase<KDNearest1<_T, _Space, _TtoKey>, _T, _Space, _TtoKey> {
     typedef typename _Space::Distance Distance;
 
-    const KDNode<_T>* nearest_;
+    const KDNode<_T>* nearest_ = nullptr;
 
     inline KDNearest1(
         const KDTreeBase<_T, _Space, _TtoKey>& tree,
         const typename _Space::State& key)
-        : KDNearestBase<KDNearest1, _T, _Space, _TtoKey>(tree, key),
-          nearest_(nullptr)
+        : KDNearestBase<KDNearest1, _T, _Space, _TtoKey>(tree, key)
     {
     }
     
     inline void updateImpl(Distance d, const KDNode<_T> *n) {
         this->dist_ = d;
         nearest_ = n;
-    }
-};
-
-struct DistValuePairCompare {
-    template <typename _Dist, typename _Value>
-    inline bool operator() (const std::pair<_Dist, _Value>& a, const std::pair<_Dist, _Value>& b) const {
-        return a.first < b.first;
     }
 };
 
