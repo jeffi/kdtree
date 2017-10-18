@@ -251,14 +251,14 @@ TEST_CASE(KDTree_SE3_10_1_nearestK_double) {
     testKNN(makeBoundedSE3Space<double,10,1>(), 5000, 500, 20);
 }
 
-template <typename Space>
-static void testRemove(const Space& space, std::size_t N) {
+template <typename Space, typename Refs>
+static void testRemove(const Space& space, std::size_t N, const Refs&) {
     using namespace unc::robotics::kdtree;
 
     typedef typename Space::State State;
     typedef typename Space::Distance Distance;
 
-    KDTree<TestNode<State>*, Space, TestNodeKey> tree(TestNodeKey(), space);
+    KDTree<TestNode<State>*, Space, TestNodeKey, Refs> tree(TestNodeKey(), space);
 
     std::mt19937_64 rng;
     std::vector<TestNode<State>> nodes;
@@ -314,7 +314,8 @@ static void testRemove(const Space& space, std::size_t N) {
 }
 
 TEST_CASE(KDTree_SE3_remove_double) {
-    testRemove(makeBoundedSE3Space<double>(), 5000);
+    using namespace unc::robotics::kdtree;
+    testRemove(makeBoundedSE3Space<double>(), 5000, PointerReferences{});
 }
 
 template <typename Space>
