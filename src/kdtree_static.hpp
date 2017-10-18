@@ -200,7 +200,9 @@ struct KDStaticNearest1
 };
 
 template <typename _T, typename _Space, typename _TtoKey>
-struct KDStaticNearestK {
+struct KDStaticNearestK
+    : KDStaticNearestBase<KDStaticNearestK<_T, _Space, _TtoKey>, _T, _Space, _TtoKey>
+{
     typedef typename _Space::Distance Distance;
     
     std::size_t k_;
@@ -230,70 +232,6 @@ struct KDStaticNearestK {
             this->dist_ = nearest_[0].first;
     }
 };
-
-
-// Node build(_Iter begin, _Iter end) {
-//     assert(begin != end);
-    
-//     _Iter it = begin;
-//     Eigen::Array<_Scalar, _dim, 1> min_ = std::get<1>(tToKey_(it->value_));
-//     Eigen::Array<_Scalar, _dim, 1> max_ = min_;
-//     Eigen::Array<_Scalar, 2, 3> soMin, soMax;
-
-//     // TODO: initialize to min/max of first elements
-//     soMin << 1,1,1, 0,0,0;
-//     soMax = -soMin;
-    
-//     while (++it != end) {
-//         min_ = min_.cwiseMin(std::get<1>(tToKey_(it->value_)));
-//         max_ = max_.cwiseMax(std::get<1>(tToKey_(it->value_)));
-
-//         if (vol_ != -1) {
-//             for (unsigned soAxis = 0 ; soAxis<3 ; ++soAxis) {
-//                 Eigen::Vector2d split = projectToAxis(std::get<0>(tToKey_(it->value_)), vol_, soAxis);
-//                 if (split[0] < soMin_(0, axis))
-//                     soMin_.col(soAxis) = split;
-//                 if (split[0] > soMin_(0, axis))
-//                     soMax_.col(soAxis) = split;
-//             }
-//         }
-//     }
-
-//     unsigned rvAxis;
-//     _Scalar rvDist = (max_ - min_).maxCoeff(&rvAxis);
-//     unsigned soAxis;
-//     _Scalar soDist = (soMin_ * soMax_).colwise().sum().minCoeff(&soAxis);
-
-//     _Iter sub = begin;
-//     ++sub;
-//     _Iter mid = sub + std::distance(sub, end)/2;
-
-//     if (rvAxis > soAxis) {
-//         std::nth_element(begin, mid, end, [&] (auto& a, auto& b) {
-//             return tToKey_(a)[axis] < tToKey_(b)[axis];
-//         });
-//         std::swap(*begin, *mid);
-//         build(sub, ++mid);
-//         build(mid, end);
-//     } else if (vol_ == -1) {
-//         // TODO: build quadrants
-//         // nested build uses different accumulator
-//         build(++begin, q1);
-//         build(q1, q2);
-//         build(q2, q3);
-//         build(q3, end);
-//     } else {
-//         std::nth_element(begin, mid, end, [&] (auto& a, auto& b) {
-//             Eigen::Matrix<Scalar, 2, 1> aSplit = projectToAxis(tToKey_(a), vol_, soAxis);
-//             Eigen::Matrix<Scalar, 2, 1> bSplit = projectToAxis(tToKey_(b), vol_, soAxis);
-//             return aSplit[0] < bSplit[0];
-//         });
-//         std::swap(*begin, *mid);
-//         build(sub, ++mid);
-//         build(mid, end);
-//     }
-
-// }
 
 
 } // namespace unc::robotics::kdtree::detail

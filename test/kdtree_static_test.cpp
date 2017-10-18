@@ -51,7 +51,9 @@ static void testBuildAndQuery(const Space& space, std::size_t N, std::size_t Q) 
     using namespace unc::robotics::kdtree;
 
     typedef typename Space::State State;
-    // typedef typename Space::Distance Distance;
+    typedef typename Space::Distance Distance;
+
+    constexpr std::size_t k = 20;
 
     std::vector<TestNode<State>> nodes;
     nodes.reserve(N);
@@ -62,6 +64,8 @@ static void testBuildAndQuery(const Space& space, std::size_t N, std::size_t Q) 
     KDStaticTree<TestNode<State>, Space, TestNodeKey> kdtree(
         TestNodeKey(), space, nodes.begin(), nodes.end());
 
+    std::vector<std::pair<Distance, TestNode<State>>> result;
+    
     EXPECT(kdtree.size()) == N;
     
     for (std::size_t i=0 ; i<Q ; ++i) {
@@ -73,6 +77,16 @@ static void testBuildAndQuery(const Space& space, std::size_t N, std::size_t Q) 
         });
 
         EXPECT(actual->name_) == expected->name_;
+
+        std::partial_sort(nodes.begin(), nodes.begin()+k, nodes.end(), [&] (auto& a, auto& b) {
+            return space.distance(q, a.state_) < space.distance(q, b.state_);
+        });
+
+        kdtree.nearest(result, q, k);
+        EXPECT(result.size()) == k;
+        for (std::size_t j=0 ; j<k ; ++j) {
+            EXPECT(result[j].second.name_) == nodes[j].name_;
+        }
     }
 }
 
