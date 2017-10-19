@@ -15,6 +15,7 @@ namespace robotics {
 namespace kdtree {
 
 struct PointerReferences {};
+
 struct LockFreePointerReferences {};
 
 namespace detail {
@@ -77,8 +78,45 @@ struct KDNode<_T, LockFreePointerReferences> {
     }
 };
 
+template <typename _Refs>
+struct AxisCache;
+
+template <>
+struct AxisCache<PointerReferences> {
+    unsigned axis_;
+    AxisCache* next_;
+
+    AxisCache(unsigned axis) : axis_(axis), next_(nullptr) {}
+
+    AxisCache* next() { return next_; }
+    AxisCache* next() const { return next_; }
+
+    AxisCache* next(unsigned axis) {
+        return next_ = new AxisCache(axis);
+    }
+};
+
+template <>
+struct AxisCache<LockFreePointerReferences> {
+    unsigned axis_;
+    std::atomic<AxisCache*> next_;
+    
+    AxisCache(unsigned axis) : axis_(axis), next_(nullptr) {}
+
+    AxisCache* next() { return next_.load(std::memory_order_acquire); }
+    AxisCache* next() const { return next_.load(std::memory_order_acquire); }
+
+    AxisCache* next(unsigned axis) {
+        return next_ = new AxisCache(axis);
+    }
+};
+
+// TODO: clean up required....
+// the implementation details are currently exposed to the caller.
+// quick refactoring to get lock-free working caused them to be exposed.
 template <typename _T, typename _Space, typename _TtoKey, typename _Refs>
-struct KDTreeBase {
+class KDTreeBase {
+public:
     // TODO: _Space may be empty, exploit empty base-class
     // optimization
     _Space space_;
@@ -86,16 +124,154 @@ struct KDTreeBase {
     // TODO: tToKey_ may also be empty
     _TtoKey tToKey_;
 
-    std::vector<unsigned> axisCache_;
-    std::unordered_set<const KDNode<_T, _Refs>*> removedSet_;
-
-    std::size_t size_ = 0;
+    AxisCache<_Refs> axisCache_;
 
     inline KDTreeBase(const _TtoKey& tToKey, const _Space& space)
         : space_(space),
-          tToKey_(tToKey)
+          tToKey_(tToKey),
+          axisCache_(~0)
     {
-        axisCache_.reserve(32);
+        // axisCache_.reserve(32);
+    }
+};
+
+template <typename _T, typename _Space, typename _TtoKey, typename _Refs>
+struct KDAdder;
+
+template <typename _T, typename _Space, typename _TtoKey, typename _Refs>
+struct KDRemover;
+
+template <typename _T, typename _Space, typename _TtoKey, typename _Refs>
+class KDTreeRefBase;
+    
+template <typename _T, typename _Space, typename _TtoKey>
+class KDTreeRefBase<_T, _Space, _TtoKey, PointerReferences>
+    : public KDTreeBase<_T, _Space, _TtoKey, PointerReferences>
+{
+    typedef detail::KDNode<_T, PointerReferences> Node;
+
+public:
+    Node *root_ = nullptr;
+    
+    std::unordered_set<const KDNode<_T, PointerReferences>*> removedSet_;
+    std::size_t size_ = 0;
+
+
+    using KDTreeBase<_T, _Space, _TtoKey, PointerReferences>::KDTreeBase;
+
+    inline const Node *root() const { return root_; }
+    inline Node *root() { return root_; }
+
+    ~KDTreeRefBase() {
+        delete root_;
+    }
+    
+    void clear() {
+        removedSet_.clear();
+        root_ = nullptr;
+        size_ = 0;
+    }
+
+    // remove is not supported with LockFreePointerReferences yet
+    // template <typename _Q = _Refs>
+    // typename std::enable_if<std::is_same<PointerReferences, _Q>::value, bool>::type
+    bool remove(const _T& value) {
+        if (!root_)
+            return false;
+        
+        KDRemover<_T, _Space, _TtoKey, PointerReferences> remover(*this, value);
+        return remover(root_);
+    }
+
+    void add(const _T& value) {
+        Node *n = new Node(value);
+        
+        if (root_ == nullptr) {
+            root_ = n;
+        } else {
+            KDAdder<_T, _Space, _TtoKey, PointerReferences> adder(*this, this->tToKey_(value));
+            adder(root_, n);
+        }
+        
+        ++this->size_;
+    }
+
+};
+
+template <typename _T, typename _Space, typename _TtoKey>
+class KDTreeRefBase<_T, _Space, _TtoKey, LockFreePointerReferences>
+    : public KDTreeBase<_T, _Space, _TtoKey, LockFreePointerReferences>
+{
+    typedef detail::KDNode<_T, LockFreePointerReferences> Node;
+protected:
+    std::atomic<Node *> root_{};
+    std::atomic<std::size_t> size_{};
+
+    using KDTreeBase<_T, _Space, _TtoKey, LockFreePointerReferences>::KDTreeBase;
+
+    ~KDTreeRefBase() {
+        delete root_.load();
+    }
+    
+    inline const Node* root() const {
+        return root_.load(std::memory_order_relaxed);
+    }
+
+public:
+    void add(const _T& value) {
+        Node* n = new Node(value);
+        Node* root = root_.load(std::memory_order_acquire);
+
+        while (root == nullptr) {
+            if (root_.compare_exchange_weak(root, n, std::memory_order_release, std::memory_order_relaxed)) {
+                ++this->size_;
+                return;
+            }
+        }
+
+        KDAdder<_T, _Space, _TtoKey, LockFreePointerReferences> adder(*this, this->tToKey_(value));
+        adder(root, n);
+        ++this->size_;
+    }
+};
+
+template <typename _T, typename _Space, typename _TtoKey, typename _Refs>
+struct KDRemoved;
+
+template <typename _T, typename _Space, typename _TtoKey>
+struct KDRemoved<_T, _Space, _TtoKey, PointerReferences> {
+    typedef PointerReferences Refs;
+    typedef KDTreeRefBase<_T, _Space, _TtoKey, Refs> Tree;
+    typedef KDNode<_T, Refs> Node;
+    
+    inline static bool reuseRemoved(Tree& tree, Node* p, KDNode<_T, Refs>* n) {
+        auto it = tree.removedSet_.find(p);
+        if (it != tree.removedSet_.end()) {
+            tree.removedSet_.erase(it);
+            p->value_ = n->value_;
+            delete n;
+            return true;
+        }
+        return false;
+    }
+    
+    inline static bool removed(const Tree& tree, const Node* n) {
+        return tree.removedSet_.size() > 0 && tree.removedSet_.count(n);
+    }
+};
+
+template <typename _T, typename _Space, typename _TtoKey>
+struct KDRemoved<_T, _Space, _TtoKey, LockFreePointerReferences> {
+    typedef LockFreePointerReferences Refs;
+    typedef KDTreeRefBase<_T, _Space, _TtoKey, Refs> Tree;
+    typedef KDNode<_T, Refs> Node;
+
+    constexpr static bool reuseRemoved(Tree& tree, Node* p, Node* n) {
+        return false;
+    }
+
+    constexpr static bool removed(const Tree& tree, const Node* n) {
+        return false;
     }
 };
 
@@ -215,7 +391,7 @@ struct KDAddTraversal<BoundedL2Space<_Scalar, _dimensions>>
     }
 
     template <typename _Adder, typename _T, typename _Refs>
-    void addImpl(_Adder& adder, unsigned axis, KDNode<_T, _Refs>* p, unsigned depth, KDNode<_T, _Refs>* n) {
+    void addImpl(_Adder& adder, unsigned axis, KDNode<_T, _Refs>* p, KDNode<_T, _Refs>* n) {
         _Scalar split = (bounds_(axis, 0) + bounds_(axis,1)) * static_cast<_Scalar>(0.5);
         int childNo = (split - key_[axis]) < 0;
         
@@ -225,16 +401,16 @@ struct KDAddTraversal<BoundedL2Space<_Scalar, _dimensions>>
                 return;
         
         bounds_(axis, 1-childNo) = split;
-        adder(c, depth+1, n);
+        adder(c, n);
     }
 
     template <typename _Remover, typename _T, typename _Refs>
-    bool removeImpl(_Remover& remover, unsigned axis, KDNode<_T, _Refs>* p, unsigned depth) {
+    bool removeImpl(_Remover& remover, unsigned axis, KDNode<_T, _Refs>* p) {
         _Scalar split = (bounds_(axis, 0) + bounds_(axis,1)) * static_cast<_Scalar>(0.5);
         int childNo = (split - key_[axis]) < 0;
         if (KDNode<_T, _Refs>* c = p->child(childNo)) {
             bounds_(axis, 1-childNo) = split;
-            return remover(c, depth+1);
+            return remover(c);
         } else {
             return false;
         }
@@ -296,7 +472,6 @@ struct KDAddTraversal<SO3Space<_Scalar>>
         _Adder& adder,
         unsigned axis,
         KDNode<_T, _Refs>* p,
-        unsigned depth,
         KDNode<_T, _Refs>* n)
     {
         int childNo;
@@ -325,7 +500,7 @@ struct KDAddTraversal<SO3Space<_Scalar>>
             // }
             
             ++soDepth_;
-            adder(c, depth+1, n); // this should be depth+2, but that doesn't work with the axisCache.
+            adder(c, n);
         } else {
             Eigen::Matrix<Scalar, 2, 1> mp = (soBounds_[0].col(axis) + soBounds_[1].col(axis))
                 .matrix().normalized();
@@ -346,12 +521,12 @@ struct KDAddTraversal<SO3Space<_Scalar>>
             
             soBounds_[1-childNo].col(axis) = mp;
             ++soDepth_;
-            adder(c, depth+1, n);
+            adder(c, n);
         }
     }
 
     template <typename _Remover, typename _T, typename _Refs>
-    bool removeImpl(_Remover& remover, unsigned axis, KDNode<_T, _Refs>* p, unsigned depth) {
+    bool removeImpl(_Remover& remover, unsigned axis, KDNode<_T, _Refs>* p) {
         KDNode<_T, _Refs>* c;
         if (soDepth_ < 3) {
             if ((c = p->child(keyVol_ & 1)) == nullptr)
@@ -365,7 +540,7 @@ struct KDAddTraversal<SO3Space<_Scalar>>
                 return false;
 
             ++soDepth_;
-            return remover(c, depth+1); // this should be depth+2, but that doesn't work with the axisCache.
+            return remover(c); 
         } else {
             int childNo;
             Eigen::Matrix<Scalar, 2, 1> mp = (soBounds_[0].col(axis) + soBounds_[1].col(axis))
@@ -377,7 +552,7 @@ struct KDAddTraversal<SO3Space<_Scalar>>
             
             soBounds_[1-childNo].col(axis) = mp;
             ++soDepth_;
-            return remover(c, depth+1);            
+            return remover(c);
         }
     }
 };
@@ -519,17 +694,16 @@ struct CompoundAddImpl {
         unsigned dimBefore,
         unsigned axis,
         KDNode<_T, _Refs>* p,
-        unsigned depth,
         KDNode<_T, _Refs>* n)
     {
         // assert(axis >= dimBefore);
         unsigned dimAfter = dimBefore + std::get<_index>(traversals).dimensions();
         if (axis < dimAfter) {
             std::get<_index>(traversals).addImpl(
-                adder, axis - dimBefore, p, depth, n);
+                adder, axis - dimBefore, p, n);
         } else {
             CompoundAddImpl<_index+1, _Spaces...>::addImpl(
-                traversals, adder, dimAfter, axis, p, depth, n);
+                traversals, adder, dimAfter, axis, p, n);
         }
     }
 
@@ -539,17 +713,16 @@ struct CompoundAddImpl {
         _Remover& remover,
         unsigned dimBefore,
         unsigned axis,
-        KDNode<_T, _Refs>* p,
-        unsigned depth)
+        KDNode<_T, _Refs>* p)
     {
         // assert(axis >= dimBefore);
         unsigned dimAfter = dimBefore + std::get<_index>(traversals).dimensions();
         if (axis < dimAfter) {
             return std::get<_index>(traversals).removeImpl(
-                remover, axis - dimBefore, p, depth);
+                remover, axis - dimBefore, p);
         } else {
             return CompoundAddImpl<_index+1, _Spaces...>::removeImpl(
-                traversals, remover, dimAfter, axis, p, depth);
+                traversals, remover, dimAfter, axis, p);
         }
     }
 
@@ -569,13 +742,12 @@ struct CompoundAddImpl<sizeof...(_Spaces)-1, _Spaces...> {
         unsigned dimBefore,
         unsigned axis,
         KDNode<_T, _Refs>* p,
-        unsigned depth,
         KDNode<_T, _Refs>* n)
     {
         // assert(axis >= dimBefore);
         // assert(axis < dimBefore + CurrentSpace::dimensions);
         std::get<_index>(traversals).addImpl(
-            adder, axis - dimBefore, p, depth, n);
+            adder, axis - dimBefore, p, n);
     }
 
     template <typename _Traversals, typename _Remover, typename _T, typename _Refs>
@@ -584,13 +756,12 @@ struct CompoundAddImpl<sizeof...(_Spaces)-1, _Spaces...> {
         _Remover& remover,
         unsigned dimBefore,
         unsigned axis,
-        KDNode<_T, _Refs>* p,
-        unsigned depth)
+        KDNode<_T, _Refs>* p)
     {
         // assert(axis >= dimBefore);
         // assert(axis < dimBefore + CurrentSpace::dimensions);
         return std::get<_index>(traversals).removeImpl(
-            remover, axis - dimBefore, p, depth);
+            remover, axis - dimBefore, p);
     }
 
 };
@@ -625,13 +796,13 @@ struct KDAddTraversal<CompoundSpace<_Spaces...>> {
     }
 
     template <typename _Adder, typename _T, typename _Refs>
-    void addImpl(_Adder& adder, unsigned axis, KDNode<_T, _Refs>* p, unsigned depth, KDNode<_T, _Refs>* n) {
-        CompoundAddImpl<0, _Spaces...>::addImpl(traversals_, adder, 0, axis, p, depth, n);
+    void addImpl(_Adder& adder, unsigned axis, KDNode<_T, _Refs>* p, KDNode<_T, _Refs>* n) {
+        CompoundAddImpl<0, _Spaces...>::addImpl(traversals_, adder, 0, axis, p, n);
     }
 
     template <typename _Remover, typename _T, typename _Refs>
-    bool removeImpl(_Remover& remover, unsigned axis, KDNode<_T, _Refs>* p, unsigned depth) {
-        return CompoundAddImpl<0, _Spaces...>::removeImpl(traversals_, remover, 0, axis, p, depth);
+    bool removeImpl(_Remover& remover, unsigned axis, KDNode<_T, _Refs>* p) {
+        return CompoundAddImpl<0, _Spaces...>::removeImpl(traversals_, remover, 0, axis, p);
     }
 };
 
@@ -660,14 +831,14 @@ struct KDNearestTraversal<BoundedL2Space<_Scalar, _dimensions>>
     }
 
     template <typename _Nearest, typename _T, typename _Refs>
-    inline void traverse(_Nearest& nearest, const KDNode<_T, _Refs>* n, unsigned axis, unsigned depth) {
+    inline void traverse(_Nearest& nearest, const KDNode<_T, _Refs>* n, unsigned axis) {
         _Scalar split = (bounds_(axis, 0) + bounds_(axis, 1)) * static_cast<_Scalar>(0.5);
         _Scalar delta = (split - key_[axis]);
         int childNo = delta < 0;
 
         if (const KDNode<_T, _Refs>* c = n->child(childNo)) {
             std::swap(bounds_(axis, 1-childNo), split);
-            nearest(c, depth+1);
+            nearest(c);
             std::swap(bounds_(axis, 1-childNo), split);
         }
 
@@ -678,7 +849,7 @@ struct KDNearestTraversal<BoundedL2Space<_Scalar, _dimensions>>
             regionDeltas_[axis] = delta*delta;
             if (nearest.distToRegion() <= nearest.dist()) {
                 std::swap(bounds_(axis, childNo), split);
-                nearest(c, depth+1);
+                nearest(c);
                 std::swap(bounds_(axis, childNo), split);
             }
             regionDeltas_[axis] = oldDelta;
@@ -1006,7 +1177,7 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
     // }
 
     template <typename _Nearest, typename _T, typename _Refs>
-    inline void traverse(_Nearest& nearest, const KDNode<_T, _Refs>* n, unsigned axis, unsigned depth) {
+    inline void traverse(_Nearest& nearest, const KDNode<_T, _Refs>* n, unsigned axis) {
         // std::cout << n->value_.name_ << " " << soDepth_ << std::endl;
         if (soDepth_ < 3) {
             ++soDepth_;
@@ -1014,7 +1185,7 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
                 // std::cout << c->value_.name_ << " " << soDepth_ << ".5" << std::endl;
                 if (const KDNode<_T, _Refs> *g = c->child(keyVol_ >> 1)) {
                     // assert(std::abs(origKey_.coeffs()[keyVol_]) == key_[3]);
-                    nearest(g, depth+1);
+                    nearest(g);
                 }
                 // TODO: can we gain so efficiency by exploring the
                 // nearest of the remaining 3 volumes first?
@@ -1026,7 +1197,7 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
                     // assert(std::abs(origKey_.coeffs()[keyVol_ ^ 2]) == key_[3]);
                     distToRegionCache_ = computeDistToRegion();
                     if (nearest.distToRegion() <= nearest.dist())
-                        nearest(g, depth+1);
+                        nearest(g);
                 }
             }
             nearest.update(n);
@@ -1039,7 +1210,7 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
                     // assert(std::abs(origKey_.coeffs()[keyVol_ ^ 1]) == key_[3]);
                     distToRegionCache_ = computeDistToRegion();
                     if (nearest.distToRegion() <= nearest.dist())
-                        nearest(g, depth+1);
+                        nearest(g);
                 }
                 nearest.update(c);
                 if (const KDNode<_T, _Refs> *g = c->child(1 - (keyVol_ >> 1))) {
@@ -1049,7 +1220,7 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
                     // assert(std::abs(origKey_.coeffs()[keyVol_ ^ 3]) == key_[3]);
                     distToRegionCache_ = computeDistToRegion();
                     if (nearest.distToRegion() <= nearest.dist())
-                        nearest(g, depth+1);
+                        nearest(g);
                 }
             }
             // setting vol_ to keyVol_ is only needed when part of a compound space
@@ -1077,7 +1248,7 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
 //                 if (soBoundsDistNow + rvBoundsDistCache_ <= dist_) {
 //                     std::swap(soBoundsDistNow, soBoundsDistCache_);
 // #endif
-                nearest(c, depth+1);
+                nearest(c);
 // #ifdef KD_PEDANTIC
 //                     soBoundsDistCache_ = soBoundsDistNow;
 //                 }
@@ -1091,7 +1262,7 @@ struct KDNearestTraversal<SO3Space<_Scalar>>
                 Scalar oldDistToRegion = distToRegionCache_;
                 distToRegionCache_ = computeDistToRegion();
                 if (nearest.distToRegion() <= nearest.dist())
-                    nearest(c, depth+1);
+                    nearest(c);
                 distToRegionCache_ = oldDistToRegion;
                 soBounds_[childNo].col(axis) = tmp;
             }
@@ -1127,8 +1298,8 @@ struct KDNearestTraversal<RatioWeightedSpace<_Space, _num, _den>>
     }
 
     template <typename _Nearest, typename _T, typename _Refs>
-    inline void traverse(_Nearest& nearest, const KDNode<_T, _Refs>* n, unsigned axis, unsigned depth) {
-        KDNearestTraversal<_Space>::traverse(nearest, n, axis, depth);
+    inline void traverse(_Nearest& nearest, const KDNode<_T, _Refs>* n, unsigned axis) {
+        KDNearestTraversal<_Space>::traverse(nearest, n, axis);
     }
 };
 
@@ -1164,8 +1335,8 @@ struct KDNearestTraversal<WeightedSpace<_Space>>
     }
 
     template <typename _Nearest, typename _T, typename _Refs>
-    void traverse(_Nearest& nearest, const KDNode<_T, _Refs>* n, unsigned axis, unsigned depth) {
-        KDNearestTraversal<_Space>::traverse(nearest, n, axis, depth);
+    void traverse(_Nearest& nearest, const KDNode<_T, _Refs>* n, unsigned axis) {
+        KDNearestTraversal<_Space>::traverse(nearest, n, axis);
     }
 };
 
@@ -1198,16 +1369,15 @@ struct CompoundTraverse {
         _Nearest& nearest,
         const KDNode<_T, _Refs>* n,
         unsigned dimBefore,
-        unsigned axis,
-        unsigned depth)
+        unsigned axis)
     {
         // assert(axis >= dimBefore);
         unsigned dimAfter = dimBefore + std::get<_index>(traversals).dimensions();
         if (axis < dimAfter) {
-            std::get<_index>(traversals).traverse(nearest, n, axis - dimBefore, depth);
+            std::get<_index>(traversals).traverse(nearest, n, axis - dimBefore);
         } else {
             CompoundTraverse<_index+1, _Spaces...>::traverse(
-                traversals, nearest, n, dimAfter, axis, depth);
+                traversals, nearest, n, dimAfter, axis);
         }
     }
 };
@@ -1224,12 +1394,11 @@ struct CompoundTraverse<sizeof...(_Spaces)-1, _Spaces...> {
         _Nearest& nearest,
         const KDNode<_T, _Refs>* n,
         unsigned dimBefore,
-        unsigned axis,
-        unsigned depth)
+        unsigned axis)
     {
         // assert(axis >= dimBefore);
         // assert(axis - dimBefore < CurrentSpace::dimensions);
-        std::get<_index>(traversals).traverse(nearest, n, axis - dimBefore, depth);
+        std::get<_index>(traversals).traverse(nearest, n, axis - dimBefore);
     }
 };
 
@@ -1275,8 +1444,8 @@ struct KDNearestTraversal<CompoundSpace<_Spaces...>> {
     }
 
     template <typename _Nearest, typename _T, typename _Refs>
-    inline void traverse(_Nearest& nearest, const KDNode<_T, _Refs>* n, unsigned axis, unsigned depth) {
-        CompoundTraverse<0, _Spaces...>::traverse(traversals_, nearest, n, 0, axis, depth);
+    inline void traverse(_Nearest& nearest, const KDNode<_T, _Refs>* n, unsigned axis) {
+        CompoundTraverse<0, _Spaces...>::traverse(traversals_, nearest, n, 0, axis);
     }
 };
 
@@ -1284,47 +1453,48 @@ template <typename _T, typename _Space, typename _TtoKey, typename _Refs>
 struct KDAdder {
     typedef typename _Space::Distance Distance;
 
-    KDTreeBase<_T, _Space, _TtoKey, _Refs>& tree_;
+    KDTreeRefBase<_T, _Space, _TtoKey, _Refs>& tree_;
     KDAddTraversal<_Space> traversal_;
+    AxisCache<_Refs>* axisCache_;
     
-    KDAdder(KDTreeBase<_T, _Space, _TtoKey, _Refs>& tree,
+    KDAdder(KDTreeRefBase<_T, _Space, _TtoKey, _Refs>& tree,
             const typename _Space::State& key)
         : tree_(tree),
-          traversal_(tree.space_, key)
+          traversal_(tree.space_, key),
+          axisCache_(&tree.axisCache_)
     {
     }
 
-    inline void operator() (KDNode<_T, _Refs>*& p, unsigned depth, KDNode<_T, _Refs>* n) {
-        auto it = tree_.removedSet_.find(p);
-        if (it != tree_.removedSet_.end()) {
-            tree_.removedSet_.erase(it);
-            p->value_ = n->value_;
-            delete n;
+    inline void operator() (KDNode<_T, _Refs>*& p, KDNode<_T, _Refs>* n) {
+        if (KDRemoved<_T, _Space, _TtoKey, _Refs>::reuseRemoved(tree_, p, n))
             return;
-        }
         
-        if (depth >= tree_.axisCache_.size()) {
+        AxisCache<_Refs>* nextAxis = axisCache_->next();
+        if (nextAxis == nullptr) {
             unsigned axis;
             traversal_.maxAxis(&axis);
-            tree_.axisCache_.push_back(axis);
+            nextAxis = axisCache_->next(axis);
         }
-        
-        traversal_.addImpl(*this, tree_.axisCache_[depth], p, depth, n);
+        axisCache_ = nextAxis;
+                
+        traversal_.addImpl(*this, axisCache_->axis_, p, n);
     }
 };
 
 template <typename _T, typename _Space, typename _TtoKey, typename _Refs>
 struct KDRemover {
-    KDTreeBase<_T, _Space, _TtoKey, _Refs>& tree_;
+    KDTreeRefBase<_T, _Space, _TtoKey, _Refs>& tree_;
     KDAddTraversal<_Space> traversal_;
     const _T& valueToRemove_;
+    AxisCache<_Refs>* axisCache_;
 
     KDRemover(
-        KDTreeBase<_T, _Space, _TtoKey, _Refs>& tree,
+        KDTreeRefBase<_T, _Space, _TtoKey, _Refs>& tree,
         const _T& value)
         : tree_(tree),
           traversal_(tree.space_, tree.tToKey_(value)),
-          valueToRemove_(value)
+          valueToRemove_(value),
+          axisCache_(&tree.axisCache_)
     {
     }
 
@@ -1340,10 +1510,11 @@ struct KDRemover {
         return true;
     }
     
-    inline bool operator() (KDNode<_T, _Refs>* n, unsigned depth) {
+    inline bool operator() (KDNode<_T, _Refs>* n) {
+        axisCache_ = axisCache_->next();
         return remove(n)
             || ((n->children_[0] != n->children_[1])
-                && traversal_.removeImpl(*this, tree_.axisCache_[depth], n, depth));
+                && traversal_.removeImpl(*this, axisCache_->axis_, n));
     }
 };
 
@@ -1351,17 +1522,19 @@ template <typename _Derived, typename _T, typename _Space, typename _TtoKey, typ
 struct KDNearestBase {
     typedef typename _Space::Distance Distance;
 
-    const KDTreeBase<_T, _Space, _TtoKey, _Refs>& tree_;
+    const KDTreeRefBase<_T, _Space, _TtoKey, _Refs>& tree_;
     KDNearestTraversal<_Space> traversal_;
     Distance dist_;
+    const AxisCache<_Refs> *axisCache_;
     
     inline KDNearestBase(
-        const KDTreeBase<_T, _Space, _TtoKey, _Refs>& tree,
+        const KDTreeRefBase<_T, _Space, _TtoKey, _Refs>& tree,
         const typename _Space::State& key,
         Distance dist = std::numeric_limits<Distance>::infinity())
         : tree_(tree),
           traversal_(tree.space_, key),
-          dist_(dist)
+          dist_(dist),
+          axisCache_(&tree.axisCache_)
     {
     }
 
@@ -1375,17 +1548,20 @@ struct KDNearestBase {
         return d;
     }
 
-    void operator() (const KDNode<_T, _Refs>* n, unsigned depth) {
+    void operator() (const KDNode<_T, _Refs>* n) {
         if (n->child(0) == n->child(1)) {
             // only possible when both children are null
             update(n);
         } else {
-            traversal_.traverse(static_cast<_Derived&>(*this), n, tree_.axisCache_[depth], depth);
+            const AxisCache<_Refs> *oldCache = axisCache_;
+            axisCache_ = axisCache_->next();
+            traversal_.traverse(static_cast<_Derived&>(*this), n, axisCache_->axis_);
+            axisCache_ = oldCache;
         }
     }
 
     void update(const KDNode<_T, _Refs>* n) {
-        if (tree_.removedSet_.size() > 0 && tree_.removedSet_.count(n))
+        if (KDRemoved<_T, _Space, _TtoKey, _Refs>::removed(tree_, n))
             return;
         
         Distance d = traversal_.keyDistance(tree_.tToKey_(n->value_));
@@ -1404,7 +1580,7 @@ struct KDNearest1 : KDNearestBase<KDNearest1<_T, _Space, _TtoKey, _Refs>, _T, _S
     const KDNode<_T, _Refs>* nearest_ = nullptr;
 
     inline KDNearest1(
-        const KDTreeBase<_T, _Space, _TtoKey, _Refs>& tree,
+        const KDTreeRefBase<_T, _Space, _TtoKey, _Refs>& tree,
         const typename _Space::State& key)
         : KDNearestBase<KDNearest1, _T, _Space, _TtoKey, _Refs>(tree, key)
     {
@@ -1424,7 +1600,7 @@ struct KDNearestK : KDNearestBase<KDNearestK<_T, _Space, _TtoKey, _Refs>, _T, _S
     std::vector<std::pair<Distance, _T>>& nearest_;
 
     inline KDNearestK(
-        const KDTreeBase<_T, _Space, _TtoKey, _Refs>& tree,
+        const KDTreeRefBase<_T, _Space, _TtoKey, _Refs>& tree,
         std::vector<std::pair<Distance, _T>>& nearest,
         std::size_t k,
         Distance r,
@@ -1454,17 +1630,15 @@ struct KDNearestK : KDNearestBase<KDNearestK<_T, _Space, _TtoKey, _Refs>, _T, _S
 } // namespace unc::robotics::kdtree::detail
 
 template <typename _T, typename _Space, typename _TtoKey, typename _Refs = PointerReferences>
-class KDTree : private detail::KDTreeBase<_T, _Space, _TtoKey, _Refs> {
+class KDTree : public detail::KDTreeRefBase<_T, _Space, _TtoKey, _Refs> {
     typedef detail::KDNode<_T, _Refs> Node;
     typedef _Space Space;
     typedef typename Space::State Key;
     typedef typename Space::Distance Distance;
 
-    Node *root_ = nullptr;
-
 public:
     KDTree(const _TtoKey& tToKey, const Space& space = _Space())
-        : detail::KDTreeBase<_T, _Space, _TtoKey, _Refs>(tToKey, space)
+        : detail::KDTreeRefBase<_T, _Space, _TtoKey, _Refs>(tToKey, space)
     {
     }
 
@@ -1473,14 +1647,8 @@ public:
 
     // moves are cheap though
     KDTree(KDTree&& other)
-        : detail::KDTreeBase<_T, _Space, _TtoKey, _Refs>(std::move(other)),
-          root_(other.root_)
+        : detail::KDTreeRefBase<_T, _Space, _TtoKey, _Refs>(std::move(other))
     {
-        other.root_ = nullptr;
-    }
-
-    ~KDTree() {
-        delete root_;
     }
 
     inline constexpr std::size_t size() const {
@@ -1491,45 +1659,18 @@ public:
         return size() == 0;
     }
 
-    inline unsigned depth() const {
-        return this->axisCache_.size() + 1;
-    }
-
-    void clear() {
-        this->removedSet_.clear();
-        this->size_ = 0;
-        delete root_;
-    }
-
-    // remove is not supported with LockFreePointerReferences yet
-    template <typename _Q = _Refs>
-    typename std::enable_if<std::is_same<PointerReferences, _Q>::value, bool>::type
-    remove(const _T& value) {
-        if (!root_)
-            return false;
-        
-        detail::KDRemover<_T, _Space, _TtoKey, _Refs> remover(*this, value);
-        return remover(root_, 0);
-    }
-
-    void add(const _T& value) {
-        if (root_ == nullptr) {
-            root_ = new Node(value);
-        } else {
-            const Key& key = this->tToKey_(value);
-            detail::KDAdder<_T, _Space, _TtoKey, _Refs> adder(*this, key);
-            adder(root_, 0, new Node(value));
-        }
-        
-        ++this->size_;
-    }
+    // inline unsigned depth() const {
+    //     return this->axisCache_.size() + 1;
+    // }
 
     const _T* nearest(const Key& key, Distance *distOut = nullptr) const {
-        if (!root_)
+        const Node *root = this->root();
+        
+        if (!root)
             return nullptr;
         
         detail::KDNearest1<_T, _Space, _TtoKey, _Refs> nearest(*this, key);
-        nearest(root_, 0);
+        nearest(root);
         if (distOut)
             *distOut = nearest.dist_;
         
@@ -1548,7 +1689,7 @@ public:
             return;
 
         detail::KDNearestK<_T, _Space, _TtoKey, _Refs> nearestK(*this, result, k, maxRadius, key);
-        nearestK(root_, 0);
+        nearestK(this->root());
         std::sort_heap(result.begin(), result.end(), detail::DistValuePairCompare());
     }
 };

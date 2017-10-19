@@ -116,10 +116,10 @@ static void testAdd(const Space& space) {
 
         EXPECT(tree.size()) == i+1;
         EXPECT(tree.empty()) == false;
-        int minDepth = std::floor(std::log(i+1) / std::log(2));
+        // int minDepth = std::floor(std::log(i+1) / std::log(2));
         // int maxDepth = std::ceil(minDepth*(1 + std::log(2)));
-        EXPECT(tree.depth()) >= minDepth;
-        EXPECT(tree.depth()) <= 3 * (minDepth+1);
+        // EXPECT(tree.depth()) >= minDepth;
+        // EXPECT(tree.depth()) <= 3 * (minDepth+1);
 
         Distance dist;
         const TestNode<State>* nearest = tree.nearest(q, &dist);
