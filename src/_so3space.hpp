@@ -320,7 +320,7 @@ struct MidpointNearestTraversal<_Node, SO3Space<_Scalar>>
     }
 
     template <typename _Nearest>
-    void traverse(_Nearest& nearest, const _Node* n, unsigned axis) {
+    inline void traverse(_Nearest& nearest, const _Node* n, unsigned axis) {
         if (soDepth_ < 3) {
             ++soDepth_;
             if (const _Node *c = _Nearest::child(n, keyVol_ & 1)) {

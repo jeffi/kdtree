@@ -18,6 +18,8 @@ struct MidpointSplitNodeMember<_Node, _destructorDeletes, false> {
     static constexpr bool lockfree = false;
         
     std::array<_Node*, 2> children_{};
+
+    MidpointSplitNodeMember(const MidpointSplitNodeMember&) = delete;
     
     ~MidpointSplitNodeMember() {
         if (_destructorDeletes) {
@@ -40,6 +42,8 @@ struct MidpointSplitNodeMember<_Node, _destructorDeletes, true> {
     static constexpr bool lockfree = true;
     
     std::array<std::atomic<_Node*>, 2> children_{};
+
+    MidpointSplitNodeMember(const MidpointSplitNodeMember&) = delete;
     
     ~MidpointSplitNodeMember() {
         if (_destructorDeletes) {
@@ -70,39 +74,37 @@ struct CompareFirst {
     }
 };
 
+// MidpointSplitNode is used in the default non-intrusive KDTree
+// implementation with MidpointSplits.  It extends the value type and
+// adds the required intrusive KDTree child members.
 template <typename _T, bool _lockfree>
-struct MidpointSplitNode {
-    _T value_;
-    MidpointSplitNodeMember<MidpointSplitNode<_T, _lockfree>, true, _lockfree> children_;
+struct MidpointSplitNode : _T {
+    MidpointSplitNodeMember<MidpointSplitNode<_T, _lockfree>, true, _lockfree> children_{};
 
     MidpointSplitNode(const MidpointSplitNode&) = delete;
     MidpointSplitNode(MidpointSplitNode&&) = delete;
     
-    MidpointSplitNode(const _T& value)
-        : value_(value)
-    {
-    }
-    
+    MidpointSplitNode(const _T& value) : _T(value) {}
     template <typename ... _Args>
-    MidpointSplitNode(_Args&& ... args)
-        : value_(std::forward<_Args>(args)...)
-    {
-    }
+    MidpointSplitNode(_Args&& ... args) : _T(std::forward<_Args>(args)...) {}
 };
 
+// This class is usually not require, and _GetKey could be used
+// directly instead.  However, there is a chance the caller could
+// provide a _GetKey that would unexpectectedly handle the derived
+// class of _T that we use in the default implementation.
 template <typename _T, bool _lockfree, typename _GetKey>
 struct MidpointSplitNodeKey : _GetKey {
     inline MidpointSplitNodeKey(const _GetKey& getKey) : _GetKey(getKey) {}
 
     constexpr decltype(auto) operator() (const MidpointSplitNode<_T, _lockfree>& node) const {
-        return _GetKey::operator()(node.value_);
+        return _GetKey::operator()(static_cast<const _T&>(node));
     }
 
     constexpr decltype(auto) operator() (MidpointSplitNode<_T, _lockfree>& node) const {
-        return _GetKey::operator()(node.value_);
+        return _GetKey::operator()(static_cast<_T&>(node));
     }
 };
-
 
 template <typename _Node, bool _lockfree>
 struct MidpointSplitRoot;
@@ -123,7 +125,7 @@ struct MidpointSplitRoot<_Node, false> {
         return root_;
     }
 
-    _Node* update(_Node *node) {
+    inline _Node* update(_Node *node) {
         _Node *root = root_;
         if (root_ == nullptr)
             root_ = node;
@@ -147,7 +149,7 @@ struct MidpointSplitRoot<_Node, true> {
         return root_.load(std::memory_order_relaxed);
     }
 
-    _Node* update(_Node *node) {
+    inline _Node* update(_Node *node) {
         _Node *root = root_.load(std::memory_order_acquire);
         while (root == nullptr)
             if (root_.compare_exchange_weak(root, node, std::memory_order_release, std::memory_order_relaxed))
@@ -255,19 +257,19 @@ struct KDTreeMidpointSplitIntrusiveImpl
 
     template <typename _Derived>
     struct Nearest {
-        const KDTreeMidpointSplitIntrusiveImpl& tree_;
         MidpointNearestTraversal<_Node, _Space> traversal_;
-        const MidpointAxisCache<_lockfree>* axisCache_;
+        const KDTreeMidpointSplitIntrusiveImpl& tree_;
         Distance dist_;
+        const MidpointAxisCache<_lockfree>* axisCache_;
 
         Nearest(
             const KDTreeMidpointSplitIntrusiveImpl& tree,
             const Key& key,
             Distance dist = std::numeric_limits<Distance>::infinity())
-            : tree_(tree),
-              traversal_(tree.space_, key),
-              axisCache_(&tree.axisCache_),
-              dist_(dist)
+            : traversal_(tree.space_, key),
+              tree_(tree),
+              dist_(dist),
+              axisCache_(&tree.axisCache_)
         {
         }
 
@@ -279,17 +281,15 @@ struct KDTreeMidpointSplitIntrusiveImpl
             return (n->*_member).child(no);
         }
 
-        void update(const _Node* n) {
-            const auto& q = tree_.getKey_(*n);
-            Distance d = traversal_.keyDistance(q);
+        inline void update(const _Node* n) {
+            Distance d = traversal_.keyDistance(tree_.getKey_(*n));
             if (d <= dist_) {
                 static_cast<_Derived*>(this)->update(d, n);
             }
         }
 
-        void operator() (const _Node* n) {
-            const Member& m = n->*_member;
-            if (m.hasChild()) {
+        inline void operator() (const _Node* n) {
+            if ((n->*_member).hasChild()) {
                 const MidpointAxisCache<_lockfree> *oldCache = axisCache_;
                 axisCache_ = axisCache_->next();
                 traversal_.traverse(*this, n, axisCache_->axis_);
@@ -304,30 +304,33 @@ struct KDTreeMidpointSplitIntrusiveImpl
         const _Node *nearest_ = nullptr;
         
         using Nearest<Nearest1>::Nearest;
+        using Nearest<Nearest1>::dist_;
         
-        void update(Distance d, const _Node* n) {
-            this->dist_ = d;
+        inline void update(Distance d, const _Node* n) {
+            dist_ = d;
             nearest_ = n;
         }
     };
 
-    template <typename _Value, typename _NodeValueFn>
-    struct NearestK : Nearest<NearestK<_Value, _NodeValueFn>> {
-        _NodeValueFn nodeValueFn_;
-        std::vector<std::pair<Distance, _Value>>& nearest_;
+    template <typename _Value, typename _Allocator, typename _NodeValueFn>
+    struct NearestK : Nearest<NearestK<_Value, _Allocator, _NodeValueFn>> {
+        std::vector<std::pair<Distance, _Value>, _Allocator>& nearest_;
         std::size_t k_;
+        _NodeValueFn nodeValueFn_;
 
+        using Nearest<NearestK>::dist_;
+        
         NearestK(
             const KDTreeMidpointSplitIntrusiveImpl& tree,
-            std::vector<std::pair<Distance, _Value>>& result,
+            std::vector<std::pair<Distance, _Value>, _Allocator>& result,
             const Key& key,
             std::size_t k,
             Distance dist,
             const _NodeValueFn& nodeValueFn)
             : Nearest<NearestK>(tree, key, dist),
-              nodeValueFn_(nodeValueFn),
               nearest_(result),
-              k_(k)
+              k_(k),
+              nodeValueFn_(nodeValueFn)
         {
         }
 
@@ -341,7 +344,7 @@ struct KDTreeMidpointSplitIntrusiveImpl
             std::push_heap(nearest_.begin(), nearest_.end(), CompareFirst());
 
             if (nearest_.size() == k_)
-                this->dist_ = nearest_[0].first;
+                dist_ = nearest_[0].first;
         }        
     };
 
@@ -377,9 +380,9 @@ struct KDTreeMidpointSplitIntrusiveImpl
         return nullptr;
     }
 
-    template <typename _Value, typename _NodeValueFn>
+    template <typename _Value, typename _Allocator, typename _NodeValueFn>
     void nearest(
-        std::vector<std::pair<Distance, _Value>>& result,
+        std::vector<std::pair<Distance, _Value>, _Allocator>& result,
         const Key& key,
         std::size_t k,
         Distance maxDist,
@@ -392,7 +395,8 @@ struct KDTreeMidpointSplitIntrusiveImpl
         // std::cout << "nearest = " << &result << std::endl;
         // result.size();
         if (const Node* root = root_.get()) {
-            NearestK<_Value, _NodeValueFn> nearest(*this, result, key, k, maxDist, std::forward<_NodeValueFn>(nodeValue));
+            NearestK<_Value, _Allocator, _NodeValueFn> nearest(
+                *this, result, key, k, maxDist, std::forward<_NodeValueFn>(nodeValue));
             nearest(root);
             std::sort_heap(result.begin(), result.end(), CompareFirst());
         }
@@ -447,16 +451,17 @@ public:
 
     const _T* nearest(const Key& key, Distance* distOut = nullptr) const {
         const Node* n = Base::nearest(key, distOut);
-        return n == nullptr ? nullptr : &n->value_;
+        return n == nullptr ? nullptr : n; // ->value_;
     }
 
+    template <typename _Allocator>
     void nearest(
-        std::vector<std::pair<Distance, _T>>& result,
+        std::vector<std::pair<Distance, _T>, _Allocator>& result,
         const Key& key,
         std::size_t k,
         Distance maxDist = std::numeric_limits<Distance>::infinity()) const
     {
-        Base::nearest(result, key, k, maxDist, [](const Node* n) { return n->value_; });
+        Base::nearest(result, key, k, maxDist, [](const Node* n) -> const auto& { return *n; });
     }
 };
 
@@ -464,3 +469,4 @@ public:
 }}}
 
 #endif // UNC_ROBOTICS_KDTREE_KDTREE_MIDPOINT_HPP
+

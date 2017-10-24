@@ -13,6 +13,7 @@ namespace unc {
 namespace robotics {
 namespace kdtree {
 
+namespace detail {
 template <typename _Scalar, int _dimensions>
 class L2SpaceBase {
 public:
@@ -32,9 +33,10 @@ public:
         return (a - b).norm();
     }
 };
+}
 
 template <typename _Scalar, int _dimensions>
-class L2Space : public L2SpaceBase<_Scalar, _dimensions> {
+class L2Space : public detail::L2SpaceBase<_Scalar, _dimensions> {
 public:
     L2Space(unsigned dimensions = _dimensions) {
         assert(dimensions == _dimensions);
@@ -44,7 +46,7 @@ public:
 };
 
 template <typename _Scalar>
-class L2Space<_Scalar, Eigen::Dynamic> {
+class L2Space<_Scalar, Eigen::Dynamic> : public detail::L2SpaceBase<_Scalar, Eigen::Dynamic> {
     unsigned dimensions_;
     
 public:

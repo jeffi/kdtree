@@ -8,6 +8,8 @@ struct TestNode {
     _State key_;
     int name_;
 
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    
     TestNode(const _State& key, int name)
         : key_(key), name_(name)
     {
@@ -23,7 +25,7 @@ struct TestNode {
 
 struct TestNodeKey {
     template <typename _State>
-    const _State& operator() (const TestNode<_State>& state) const {
+    constexpr const _State& operator() (const TestNode<_State>& state) const {
         return state.key_;
     }
 };
@@ -140,7 +142,8 @@ std::pair<double, std::size_t> benchmark(
         tree.add(nodes.back());
     }
 
-    std::vector<std::pair<Distance, TestNode<Key>>> nearest;
+    typedef std::pair<Distance, TestNode<Key>> DistNode;
+    std::vector<DistNode, Eigen::aligned_allocator<DistNode>> nearest;
     nearest.reserve(k);
     constexpr std::size_t batchSize = 100;
     typedef std::chrono::high_resolution_clock Clock;
