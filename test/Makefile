@@ -2,6 +2,7 @@ TARGET = ../build
 testsrc := $(wildcard *_test.cpp)
 testexe := $(patsubst %.cpp,$(TARGET)/%,$(testsrc))
 
+# CXX=/opt/local/bin/clang++-mp-5.0
 CXXFLAGS += -std=c++14 -I../src -I/opt/local/include/eigen3 -Wall -pedantic -O3 -g
 
 all: run_tests
@@ -35,4 +36,4 @@ clean:
 	$(RM) -r $(TARGET)
 
 # Include generated dependencies
-include $(wildcard $(TARGET)/%.d)
+include $(patsubst %.cpp,$(TARGET)/%.d,$(testsrc))

@@ -40,9 +40,9 @@ struct StateSampler<unc::robotics::kdtree::SO3Space<_Scalar>> {
     }
 };
 
-template <typename _Space, std::intmax_t _num, std::intmax_t _den>
-struct StateSampler<unc::robotics::kdtree::RatioWeightedSpace<_Space, _num, _den>> {
-    typedef unc::robotics::kdtree::RatioWeightedSpace<_Space, _num, _den> Space;
+template <typename _Space, typename _Ratio>
+struct StateSampler<unc::robotics::kdtree::RatioWeightedSpace<_Space, _Ratio>> {
+    typedef unc::robotics::kdtree::RatioWeightedSpace<_Space, _Ratio> Space;
 
     template <typename _RNG>
     static typename Space::State

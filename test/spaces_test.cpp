@@ -1,4 +1,5 @@
-#include "../src/spaces.hpp"
+#include <iostream>
+#include "../src/_spaces.hpp"
 #include "test.hpp"
 
 TEST_CASE(L2Distance) {
@@ -38,7 +39,7 @@ TEST_CASE(SO3Distance) {
 TEST_CASE(RatioWeightedDistance) {
     using namespace unc::robotics::kdtree;
     
-    typedef RatioWeightedSpace<L2Space<double, 2>, 17, 3> Space;
+    typedef RatioWeightedSpace<L2Space<double, 2>, std::ratio<17, 3>> Space;
     typedef Space::State State;
 
     Space space;
@@ -56,14 +57,18 @@ TEST_CASE(SE3Distance) {
     typedef SE3Space<double, 5, 3> Space;
     typedef Space::State State;
 
-    Space space(
-        (RatioWeightedSpace<SO3Space<double>, 1, 1>(SO3Space<double>())),
-        (RatioWeightedSpace<L2Space<double, 3>, 1, 1>(L2Space<double,3>())));
+    Space space;
+    // (
+    //     (RatioWeightedSpace<SO3Space<double>>(SO3Space<double>())),
+    //     (RatioWeightedSpace<L2Space<double, 3>>(L2Space<double,3>())));
 
-    State a(SO3Space<double>::State(1, 0, 0, 0),
-            L2Space<double, 3>::State(-1.2, 3.4, 5.6));
-    State b(SO3Space<double>::State(0, 1, 0, 0),
-            L2Space<double, 3>::State(9.8, -7.6, 5.4));
+    // State a(SO3Space<double>::State(1, 0, 0, 0),
+    //         L2Space<double, 3>::State(-1.2, 3.4, 5.6));
+    // State b(SO3Space<double>::State(0, 1, 0, 0),
+    //         L2Space<double, 3>::State(9.8, -7.6, 5.4));
+
+    State a({1, 0, 0, 0}, {-1.2, 3.4, 5.6});
+    State b({0, 1, 0, 0}, {9.8, -7.6, 5.4});
 
     EXPECT(space.distance(a, b)) == std::sqrt(
         std::pow(9.8 + 1.2, 2) +

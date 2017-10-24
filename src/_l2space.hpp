@@ -1,81 +1,74 @@
 #pragma once
-#ifndef UNC_ROBOTICS_KDTREE_LSSPACE_HPP
-#define UNC_ROBOTICS_KDTREE_LSSPACE_HPP
+#ifndef UNC_ROBOTICS_KDTREE_L2SPACE_HPP
+#define UNC_ROBOTICS_KDTREE_L2SPACE_HPP
 
-namespace unc {
-namespace robotics {
-namespace kdtree {
-namespace detail {
+namespace unc { namespace robotics { namespace kdtree { namespace detail {
 
 template <typename _Scalar, int _dimensions>
-struct KDStaticAccum<L2Space<_Scalar, _dimensions>> {
-    typedef L2Space<_Scalar, _dimensions> Space;
-
-    Eigen::Array<_Scalar, _dimensions, 1> min_;
-    Eigen::Array<_Scalar, _dimensions, 1> max_;
+struct MidpointBoundedL2TraversalBase {
+    typedef BoundedL2Space<_Scalar, _dimensions> Space;
+    typedef typename Space::State Key;
     
-    unsigned dimensions_; // TODO: this is fixed when _dimensions is not Eigen::Dynamic
+    Eigen::Array<_Scalar, _dimensions, 2> bounds_;
+    const Key& key_;
+    int dimensions_; // TODO: remove when fixed, keep when dynamic
 
-    inline KDStaticAccum(const Space& space)
-        : dimensions_(space.dimensions())
+    MidpointBoundedL2TraversalBase(const Space& space, const Key& key)
+        : bounds_(space.bounds()),
+          key_(key),
+          dimensions_(space.dimensions())
     {
     }
 
-    inline unsigned dimensions() {
+    inline constexpr unsigned dimensions() {
         return dimensions_;
     }
-    
-    template <typename _Derived>
-    void init(const Eigen::MatrixBase<_Derived>& q) {
-        min_ = q;
-        max_ = q;
-    }
 
     template <typename _Derived>
-    void accum(const Eigen::MatrixBase<_Derived>& q) {
-        min_ = min_.min(q.array());
-        max_ = max_.max(q.array());
+    inline _Scalar keyDistance(const Eigen::MatrixBase<_Derived>& q) {
+        return (key_ - q).norm();
     }
 
-    _Scalar maxAxis(unsigned *axis) {
-        return (max_ - min_).maxCoeff(axis);
-    }
-
-    template <typename _Builder, typename _Iter, typename _ToKey>
-    void partition(_Builder& builder, int axis, _Iter begin, _Iter end, const _ToKey& toKey) {
-        _Iter mid = begin + (std::distance(begin, end)-1)/2;
-        std::nth_element(begin, mid, end, [&] (auto& a, auto& b) {
-            return toKey(a)[axis] < toKey(b)[axis];
-        });
-        std::swap(*begin, *mid);
-        begin->split_ = toKey(*begin)[axis];
-        builder(++begin, ++mid);
-        builder(mid, end);
+    inline _Scalar maxAxis(unsigned *axis) {
+        return (bounds_.col(1) - bounds_.col(0)).maxCoeff(axis);
     }
 };
 
-
-template <typename _Scalar, int _dimensions>
-struct KDStaticAccum<BoundedL2Space<_Scalar, _dimensions>>
-    : KDStaticAccum<L2Space<_Scalar, _dimensions>>
+template <typename _Node, typename _Scalar, int _dimensions>
+struct MidpointAddTraversal<_Node, BoundedL2Space<_Scalar, _dimensions>>
+    : MidpointBoundedL2TraversalBase<_Scalar, _dimensions>
 {
-    using KDStaticAccum<L2Space<_Scalar, _dimensions>>::KDStaticAccum;
+    typedef BoundedL2Space<_Scalar, _dimensions> Space;
+    typedef typename Space::State Key;
+    
+    using MidpointBoundedL2TraversalBase<_Scalar, _dimensions>::MidpointBoundedL2TraversalBase;
+
+    template <typename _Adder>
+    void addImpl(_Adder& adder, unsigned axis, _Node* p, _Node *n) {
+        _Scalar split = (this->bounds_(axis, 0) + this->bounds_(axis, 1)) * 0.5;
+        int childNo = (split - this->key_[axis]) < 0;
+        _Node* c = _Adder::child(p, childNo);
+        while (c == nullptr)
+            if (_Adder::update(p, childNo, c, n))
+                return;
+
+        this->bounds_(axis, 1-childNo) = split;
+        adder(c, n);
+    }
 };
 
-
-
-template <typename _Scalar, int _dimensions>
-struct KDStaticTraversal<L2Space<_Scalar, _dimensions>> {
-    typedef L2Space<_Scalar, _dimensions> Space;
-    typedef typename Space::State State;
+template <typename _Node, typename _Scalar, int _dimensions>
+struct MidpointNearestTraversal<_Node, BoundedL2Space<_Scalar, _dimensions>>
+    : MidpointBoundedL2TraversalBase<_Scalar, _dimensions>
+{
+    typedef BoundedL2Space<_Scalar, _dimensions> Space;
+    typedef typename Space::State Key;
     typedef typename Space::Distance Distance;
 
-    const State& key_;
-
     Eigen::Array<_Scalar, _dimensions, 1> regionDeltas_;
-    
-    KDStaticTraversal(const Space& space, const State& key)
-        : key_(key)
+
+    MidpointNearestTraversal(const Space& space, const Key& key)
+        : MidpointBoundedL2TraversalBase<_Scalar, _dimensions>(space, key)
     {
         regionDeltas_.setZero();
     }
@@ -84,40 +77,33 @@ struct KDStaticTraversal<L2Space<_Scalar, _dimensions>> {
         return std::sqrt(regionDeltas_.sum());
     }
 
-    template <typename _Derived>
-    inline Distance keyDistance(const Eigen::MatrixBase<_Derived>& q) {
-        return (key_ - q).norm();
-    }
-    
-    template <typename _Nearest, typename _Iter>
-    void traverse(_Nearest& nearest, unsigned axis, _Iter min, _Iter max) {
-        const auto& n = *min++;
-        std::array<_Iter, 3> iters{{min, min + std::distance(min, max)/2, max}};
-        Distance delta = n.split_ - key_[axis];
+    template <typename _Nearest>
+    void traverse(_Nearest& nearest, const _Node* n, unsigned axis) {
+        _Scalar split = (this->bounds_(axis, 0) + this->bounds_(axis, 1)) * 0.5;
+        _Scalar delta = (split - this->key_[axis]);
         int childNo = delta < 0;
-        nearest(iters[childNo], iters[childNo+1]);
-        nearest.update(n);
-        delta *= delta;
-        std::swap(regionDeltas_[axis], delta);
-        if (nearest.distToRegion() <= nearest.dist())
-            nearest(iters[1-childNo], iters[2-childNo]);
-        regionDeltas_[axis] = delta;
+
+        if (const _Node* c = _Nearest::child(n, childNo)) {
+            std::swap(this->bounds_(axis, 1-childNo), split);
+            nearest(c);
+            std::swap(this->bounds_(axis, 1-childNo), split);            
+        }
+
+        // nearest.update(n);
+
+        if (const _Node* c = _Nearest::child(n, 1-childNo)) {
+            Distance oldDelta = regionDeltas_[axis];
+            regionDeltas_[axis] = delta*delta;
+            if (nearest.shouldTraverse()) {
+                std::swap(this->bounds_(axis, childNo), split);
+                nearest(c);
+                std::swap(this->bounds_(axis, childNo), split);
+            }
+            regionDeltas_[axis] = oldDelta;
+        }
     }
 };
 
-
-template <typename _Scalar, int _dimensions>
-struct KDStaticTraversal<BoundedL2Space<_Scalar, _dimensions>>
-    : KDStaticTraversal<L2Space<_Scalar, _dimensions>>
-{
-    using KDStaticTraversal<L2Space<_Scalar, _dimensions>>::KDStaticTraversal;
-};
-
-
-
-} // namespace unc::robotics::kdtree::detail
-} // namespace unc::robotics::kdtree
-} // namespace unc::robotics
-} // namespace unc
+}}}}
 
 #endif // UNC_ROBOTICS_KDTREE_L2SPACE_HPP
