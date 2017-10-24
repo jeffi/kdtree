@@ -26,9 +26,9 @@ struct MidpointSplitNodeMember<_Node, _destructorDeletes, false> {
         }
     }
 
-    inline _Node* child(int no) { return children_[no]; }
-    inline const _Node* child(int no) const { return children_[no]; }
-    inline bool hasChild() const { return children_[0] != children_[1]; }
+    constexpr _Node* child(int no) { return children_[no]; }
+    constexpr const _Node* child(int no) const { return children_[no]; }
+    constexpr bool hasChild() const { return children_[0] != children_[1]; }
     inline bool update(int no, _Node*, _Node* n) {
         children_[no] = n;
         return true;
@@ -48,11 +48,11 @@ struct MidpointSplitNodeMember<_Node, _destructorDeletes, true> {
         }
     }
 
-    inline _Node* child(int no) { return children_[no].load(std::memory_order_acquire); }
-    inline const _Node* child(int no) const {
+    constexpr _Node* child(int no) { return children_[no].load(std::memory_order_acquire); }
+    constexpr const _Node* child(int no) const {
         return children_[no].load(std::memory_order_relaxed);
     }
-    inline bool hasChild() const {
+    constexpr bool hasChild() const {
         return children_[0].load(std::memory_order_relaxed) != children_[1].load(std::memory_order_relaxed);
     }
     inline bool update(int no, _Node*& c, _Node* n) {
@@ -65,7 +65,7 @@ namespace detail {
 
 struct CompareFirst {
     template <typename _First, typename _Second>
-    inline bool operator() (const std::pair<_First,_Second>& a, const std::pair<_First,_Second>& b) {
+    constexpr bool operator() (const std::pair<_First,_Second>& a, const std::pair<_First,_Second>& b) const {
         return a.first < b.first;
     }
 };
@@ -119,7 +119,7 @@ struct MidpointSplitRoot<_Node, false> {
         delete root_;
     }
 
-    inline const _Node* get() const {
+    constexpr const _Node* get() const {
         return root_;
     }
 
@@ -143,7 +143,7 @@ struct MidpointSplitRoot<_Node, true> {
         delete root_.load();
     }
 
-    inline const _Node* get() const {
+    constexpr const _Node* get() const {
         return root_.load(std::memory_order_relaxed);
     }
 
@@ -169,9 +169,9 @@ struct MidpointAxisCache<false> {
         delete next_;
     }
 
-    MidpointAxisCache* next() { return next_; }
-    const MidpointAxisCache* next() const { return next_; }
-    MidpointAxisCache* next(unsigned axis) {
+    constexpr MidpointAxisCache* next() { return next_; }
+    constexpr const MidpointAxisCache* next() const { return next_; }
+    inline MidpointAxisCache* next(unsigned axis) {
         return next_ = new MidpointAxisCache(axis);
     }
 };
@@ -186,8 +186,8 @@ struct MidpointAxisCache<true> {
         delete next_.load();
     }
 
-    MidpointAxisCache* next() { return next_.load(std::memory_order_acquire); }
-    const MidpointAxisCache* next() const { return next_.load(std::memory_order_acquire); }
+    constexpr MidpointAxisCache* next() { return next_.load(std::memory_order_acquire); }
+    constexpr const MidpointAxisCache* next() const { return next_.load(std::memory_order_acquire); }
     
     MidpointAxisCache* next(unsigned axis) {
         MidpointAxisCache* next = new MidpointAxisCache(axis);
@@ -233,11 +233,11 @@ struct KDTreeMidpointSplitIntrusiveImpl
         {
         }
 
-        static inline _Node* child(_Node *p, int childNo) {
+        static constexpr _Node* child(_Node *p, int childNo) {
             return (p->*_member).child(childNo);
         }
 
-        static inline bool update(Node *p, int childNo, Node*& c, Node* n) {
+        static constexpr bool update(Node *p, int childNo, Node*& c, Node* n) {
             return (p->*_member).update(childNo, c, n);
         }
     
@@ -271,11 +271,11 @@ struct KDTreeMidpointSplitIntrusiveImpl
         {
         }
 
-        inline bool shouldTraverse() {
+        constexpr bool shouldTraverse() {
             return traversal_.distToRegion() <= dist_;
         }
 
-        static inline const _Node* child(const _Node* n, int no) {
+        static constexpr const _Node* child(const _Node* n, int no) {
             return (n->*_member).child(no);
         }
 
@@ -288,14 +288,14 @@ struct KDTreeMidpointSplitIntrusiveImpl
         }
 
         void operator() (const _Node* n) {
-            update(n);
-            
             const Member& m = n->*_member;
             if (m.hasChild()) {
                 const MidpointAxisCache<_lockfree> *oldCache = axisCache_;
                 axisCache_ = axisCache_->next();
                 traversal_.traverse(*this, n, axisCache_->axis_);
                 axisCache_ = oldCache;
+            } else {
+                update(n);
             }
         }
     };
@@ -353,7 +353,7 @@ struct KDTreeMidpointSplitIntrusiveImpl
     {
     }
 
-    std::size_t size() const {
+    constexpr std::size_t size() const {
         return root_.size_;
     }
     

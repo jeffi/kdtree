@@ -89,7 +89,7 @@ struct MidpointNearestTraversal<_Node, BoundedL2Space<_Scalar, _dimensions>>
             std::swap(this->bounds_(axis, 1-childNo), split);            
         }
 
-        // nearest.update(n);
+        nearest.update(n);
 
         if (const _Node* c = _Nearest::child(n, 1-childNo)) {
             Distance oldDelta = regionDeltas_[axis];

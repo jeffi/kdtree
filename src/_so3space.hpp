@@ -342,7 +342,7 @@ struct MidpointNearestTraversal<_Node, SO3Space<_Scalar>>
                         nearest(g);
                 }
             }
-            // nearest.update(n);
+            nearest.update(n);
             if (const _Node *c = _Nearest::child(n, 1 - (keyVol_ & 1))) {
                 // std::cout << c->value_.name_ << " " << soDepth_ << ".5" << std::endl;
                 if (const _Node *g = _Nearest::child(c, keyVol_ >> 1)) {
@@ -397,7 +397,7 @@ struct MidpointNearestTraversal<_Node, SO3Space<_Scalar>>
 // #endif
                 soBounds_[1-childNo].col(axis) = tmp;
             }
-            // nearest.update(n);
+            nearest.update(n);
             if (const _Node *c = _Nearest::child(n, 1-childNo)) {
                 Eigen::Matrix<Scalar, 2, 1> tmp = soBounds_[childNo].col(axis);
                 soBounds_[childNo].col(axis) = mp;
