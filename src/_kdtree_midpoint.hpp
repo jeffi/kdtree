@@ -30,7 +30,7 @@ struct MidpointSplitNodeMember<_Node, _destructorDeletes, false> {
 
     constexpr _Node* child(int no) { return children_[no]; }
     constexpr const _Node* child(int no) const { return children_[no]; }
-    constexpr bool hasChild() const { return children_[0] != children_[1]; }
+    inline constexpr bool hasChild() const { return children_[0] != children_[1]; }
     inline bool update(int no, _Node*, _Node* n) {
         children_[no] = n;
         return true;
@@ -56,7 +56,7 @@ struct MidpointSplitNodeMember<_Node, _destructorDeletes, true> {
     constexpr const _Node* child(int no) const {
         return children_[no].load(std::memory_order_relaxed);
     }
-    constexpr bool hasChild() const {
+    inline constexpr bool hasChild() const {
         return children_[0].load(std::memory_order_relaxed) != children_[1].load(std::memory_order_relaxed);
     }
     inline bool update(int no, _Node*& c, _Node* n) {
