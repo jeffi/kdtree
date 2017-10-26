@@ -13,6 +13,11 @@ struct MidpointCompoundHelper {
     typedef MidpointCompoundHelper<_Node, _index+1, _Spaces...> Next;
 
     template <typename _Traversals>
+    static constexpr unsigned dimensions(_Traversals& traversals, unsigned sum) {
+        return Next::dimensions(traversals, sum + std::get<_index>(traversals).dimensions());
+    }
+    
+    template <typename _Traversals>
     static inline Distance maxAxis(_Traversals& traversals, unsigned dimBefore, Distance bestDist, unsigned *bestAxis) {
         unsigned axis;
         typename Space::Distance d = std::get<_index>(traversals).maxAxis(&axis);
@@ -61,6 +66,11 @@ struct MidpointCompoundHelper<_Node, sizeof...(_Spaces)-1, _Spaces...> {
     typedef typename Space::State Key;
     typedef typename Space::Distance Distance;
     static constexpr int _index = sizeof...(_Spaces)-1;
+
+    template <typename _Traversals>
+    static constexpr unsigned dimensions(_Traversals& traversals, unsigned sum) {
+        return sum + std::get<_index>(traversals).dimensions();
+    }
     
     template <typename _Traversals>
     static inline Distance maxAxis(_Traversals& traversals, unsigned dimBefore, Distance bestDist, unsigned *bestAxis) {
@@ -154,6 +164,10 @@ struct MidpointAddTraversal<_Node, CompoundSpace<_Spaces...>> {
     {
     }
 
+    constexpr unsigned dimensions() const {
+        return MidpointCompoundHelper<_Node, 0, _Spaces...>::dimensions(traversals_, 0);
+    }
+
     inline Distance maxAxis(unsigned* axis) {
         Distance d = std::get<0>(traversals_).maxAxis(axis);
         return MidpointCompoundHelper<_Node, 1, _Spaces...>::maxAxis(
@@ -189,6 +203,10 @@ struct MidpointNearestTraversal<_Node, CompoundSpace<_Spaces...>> {
     MidpointNearestTraversal(const Space& space, const Key& key)
         : MidpointNearestTraversal(space, key, std::make_index_sequence<sizeof...(_Spaces)>{})
     {
+    }
+
+    constexpr unsigned dimensions() const {
+        return MidpointCompoundHelper<_Node, 0, _Spaces...>::dimensions(traversals_, 0);
     }
 
     template <typename _State>
@@ -264,7 +282,7 @@ struct CompoundMedianHelper {
     }
 
     template <typename _Key>
-    static Distance keyDistance(const Traversals& traversals, const Key& q, Distance sum) {
+    static Distance keyDistance(const Traversals& traversals, const _Key& q, Distance sum) {
         return Next::keyDistance(
             traversals, q,
             sum + std::get<_index>(traversals).keyDistance(std::get<_index>(q)));
@@ -408,6 +426,10 @@ struct MedianNearestTraversal<CompoundSpace<_Spaces...>> {
     MedianNearestTraversal(const Space& space, const Key& key)
         : MedianNearestTraversal(space, key, std::make_index_sequence<sizeof...(_Spaces)>{})
     {
+    }
+
+    constexpr unsigned dimensions() const {
+        return CompoundMedianHelper<0, _Spaces...>::dimensions(traversals_, 0);
     }
     
     Distance distToRegion() const {

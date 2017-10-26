@@ -211,6 +211,10 @@ struct MedianNearestTraversal<L2Space<_Scalar, _dimensions>> {
         regionDeltas_.setZero();
     }
 
+    constexpr unsigned dimensions() const {
+        return regionDeltas_.rows();
+    }
+
     Distance distToRegion() const {
         return std::sqrt(regionDeltas_.sum());
     }

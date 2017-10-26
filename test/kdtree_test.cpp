@@ -42,25 +42,8 @@ createBoundedL2Space(int dim = _dimensions) {
     return BoundedL2Space<_Scalar, _dimensions>(bounds);
 }
 
-template <typename _Scalar>
-auto createBoundedSE3Space() {
-    using namespace unc::robotics::kdtree;
-    return makeCompoundSpace(
-        SO3Space<_Scalar>(),
-        createBoundedL2Space<_Scalar, 3>());
-}
-
-template <typename _Scalar, std::intmax_t _q, std::intmax_t _t>
-auto createRatioWeightedBoundedSE3Space() {
-    using namespace unc::robotics::kdtree;
-    return makeCompoundSpace(
-        makeRatioWeightedSpace<_q>(SO3Space<_Scalar>()),
-        makeRatioWeightedSpace<_t>(createBoundedL2Space<_Scalar, 3>()));
-}
-
-
-template <typename Space>
-void testAdd(const Space& space) {
+template <typename Space, typename _Split>
+void testAdd(const Space& space, _Split&&) {
     using namespace unc::robotics::kdtree;
 
     typedef typename Space::Distance Distance;
@@ -68,7 +51,7 @@ void testAdd(const Space& space) {
     
     constexpr std::size_t N = 1000;
    
-    KDTree<TestNode<Key>, Space, TestNodeKey, MedianSplit> tree(space);
+    KDTree<TestNode<Key>, Space, TestNodeKey, _Split> tree(space);
 
     std::vector<std::pair<Distance, TestNode<Key>>> nearest;
     std::mt19937_64 rng;
@@ -84,8 +67,8 @@ void testAdd(const Space& space) {
     EXPECT(tree.size()) == N;
 }
 
-template <typename Space>
-void testKNN(const Space& space, std::size_t N, std::size_t Q, std::size_t k) {
+template <typename Space, typename _Split>
+void testKNN(const Space& space, _Split&&, std::size_t N = 10000, std::size_t Q = 5000, std::size_t k = 20) {
     using namespace unc::robotics::kdtree;
 
     typedef typename Space::Distance Distance;
@@ -213,55 +196,158 @@ void testStaticBuildAndQuery(const Space& space, std::size_t N = 10000) {
     }
 }
 
-TEST_CASE(Add_BoundedL2) {
-    testAdd(createBoundedL2Space<double, 3>());
-}
-TEST_CASE(KNN_BoundedL2) {
-    testKNN(createBoundedL2Space<double, 3>(), 10000, 1000, 20);
-}
+// Test matrix:
+// Spaces:
+// - L2Space (only for median only)
+// - BoundedL2Space (2,3,6 & dynamic versions)
+// - SO3Space
+// - SE3Space (CompoundSpace) 1:1   (not weights)
+// - SE3Space (CompoundSpace) 5:17  (ratio weights)
+// - SE3Space (CompoundSpace) PI    (real weighted)
+// - Compound of Compounds: Multiple 1:1 SE3Spaces
+//
+// Scalars:
+// - float
+// - double
+// - long double
+//
+// Special:
+// - Mixed Scalar SE3
+//
+// Dynamic tests, w/ splits Strategy:
+// - Midpoint, no thread safety
+// - Midpoint, lock-free
+// - Median, no thread safety
+// - Median, locked ?
+//
+// Static tests
+// - Median Split
+//
+// Benchmarks...
 
-TEST_CASE(Add_SO3Space) {
-    testAdd(unc::robotics::kdtree::SO3Space<double>());
-}
-TEST_CASE(KNN_SO3Space) {
-    testKNN(unc::robotics::kdtree::SO3Space<double>(), 10000, 1000, 20);
-}
+template <typename _Scalar> auto createL2_2Space() { return unc::robotics::kdtree::L2Space<_Scalar, 2>(); }
+template <typename _Scalar> auto createL2_3Space() { return unc::robotics::kdtree::L2Space<_Scalar, 3>(); }
+template <typename _Scalar> auto createL2_6Space() { return unc::robotics::kdtree::L2Space<_Scalar, 6>(); }
+template <typename _Scalar> auto createBoundedL2_2Space() { return createBoundedL2Space<_Scalar, 2>(); }
+template <typename _Scalar> auto createBoundedL2_3Space() { return createBoundedL2Space<_Scalar, 3>(); }
+template <typename _Scalar> auto createBoundedL2_6Space() { return createBoundedL2Space<_Scalar, 6>(); }
+template <typename _Scalar> auto createSO3Space() { return unc::robotics::kdtree::SO3Space<_Scalar>(); }
 
-TEST_CASE(Add_RatioWeightedSpace) {
+template <typename _Scalar>
+auto createBoundedSE3_1to1Space() {
     using namespace unc::robotics::kdtree;
-    testAdd(makeRatioWeightedSpace<17,5>(SO3Space<double>()));
+    return makeCompoundSpace(
+        SO3Space<_Scalar>(),
+        createBoundedL2Space<_Scalar, 3>());
 }
 
-TEST_CASE(KNN_RatioWeightedSpace) {
+template <typename _Scalar, std::intmax_t _q, std::intmax_t _t>
+auto createRatioWeightedBoundedSE3Space() {
     using namespace unc::robotics::kdtree;
-    testKNN(makeRatioWeightedSpace<17,5>(SO3Space<double>()), 10000, 1000, 20);
+    return makeCompoundSpace(
+        makeRatioWeightedSpace<_q>(SO3Space<_Scalar>()),
+        makeRatioWeightedSpace<_t>(createBoundedL2Space<_Scalar, 3>()));
 }
 
-TEST_CASE(Add_WeightedSpace) {
+template <typename _Scalar>
+auto createBoundedSE3_5to17Space() {
+    return createRatioWeightedBoundedSE3Space<_Scalar, 5, 17>();
+}
+
+template <typename _Scalar>
+auto createBoundedSE3_PISpace() {
     using namespace unc::robotics::kdtree;
-    testAdd(WeightedSpace<SO3Space<double>>(3.21));
+    return makeCompoundSpace(
+        SO3Space<_Scalar>(),
+        makeWeightedSpace(M_PI, createBoundedL2Space<_Scalar, 3>()));
 }
 
-TEST_CASE(KNN_WeightedSpace) {
-    using namespace unc::robotics::kdtree;
-    testKNN(WeightedSpace<SO3Space<double>>(3.21), 10000, 1000, 20);
+template <typename _Scalar>
+auto createThreeSE3Space() {
+    return makeCompoundSpace(
+        createBoundedSE3_1to1Space<_Scalar>(),
+        createBoundedSE3_1to1Space<_Scalar>(),
+        createBoundedSE3_1to1Space<_Scalar>());
 }
 
-TEST_CASE(Add_CompoundSpace_SE3_1to1) {
-    testAdd(createBoundedSE3Space<double>());
-}
+#define SCALAR_TESTS(name, split, space)                                \
+    TEST_CASE(name##_##split##_##space##_float) {                       \
+        test##name(create##space##Space<float>(), ::unc::robotics::kdtree:: split##Split{}); \
+    }                                                                   \
+    TEST_CASE(name##_##split##_##space##_double) {                      \
+        test##name(create##space##Space<double>(), ::unc::robotics::kdtree:: split##Split{}); \
+    }                                                                   \
+    TEST_CASE(name##_##split##_##space##_long_double) {                 \
+        test##name(create##space##Space<long double>(), ::unc::robotics::kdtree:: split##Split{}); \
+    }
 
-TEST_CASE(KNN_CompoundSpace_SE3_1to1) {
-    testKNN(createBoundedSE3Space<double>(), 10000, 1000, 20);
-}
+#define SPLIT_TESTS(name, space)                \
+    SCALAR_TESTS(name, Median, space)           \
+    SCALAR_TESTS(name, Midpoint, space)
 
-TEST_CASE(Add_CompoundSpace_SE3_5to17) {
-    testAdd(createRatioWeightedBoundedSE3Space<double, 5, 27>());
-}
+#define SPACE_TESTS(name)                       \
+    SPLIT_TESTS(name, BoundedL2_2)              \
+    SPLIT_TESTS(name, BoundedL2_3)              \
+    SPLIT_TESTS(name, BoundedL2_6)              \
+    SPLIT_TESTS(name, SO3)                      \
+    SPLIT_TESTS(name, BoundedSE3_1to1)          \
+    SPLIT_TESTS(name, BoundedSE3_5to17)         \
+    SPLIT_TESTS(name, BoundedSE3_PI)            \
+    SPLIT_TESTS(name, ThreeSE3)
 
-TEST_CASE(KNN_CompoundSpace_SE3_5to17) {
-    testKNN(createRatioWeightedBoundedSE3Space<double, 5, 27>(), 10000, 1000, 20);
-}
+SPACE_TESTS(Add)
+SPACE_TESTS(KNN)
+
+
+// TEST_CASE(Add_BoundedL2) {
+//     testAdd(createBoundedL2Space<double, 3>());
+// }
+// TEST_CASE(KNN_BoundedL2) {
+//     testKNN(createBoundedL2Space<double, 3>(), 10000, 1000, 20);
+// }
+
+// TEST_CASE(Add_SO3Space) {
+//     testAdd(unc::robotics::kdtree::SO3Space<double>());
+// }
+// TEST_CASE(KNN_SO3Space) {
+//     testKNN(unc::robotics::kdtree::SO3Space<double>(), 10000, 1000, 20);
+// }
+
+// TEST_CASE(Add_RatioWeightedSpace) {
+//     using namespace unc::robotics::kdtree;
+//     testAdd(makeRatioWeightedSpace<17,5>(SO3Space<double>()));
+// }
+
+// TEST_CASE(KNN_RatioWeightedSpace) {
+//     using namespace unc::robotics::kdtree;
+//     testKNN(makeRatioWeightedSpace<17,5>(SO3Space<double>()), 10000, 1000, 20);
+// }
+
+// TEST_CASE(Add_WeightedSpace) {
+//     using namespace unc::robotics::kdtree;
+//     testAdd(WeightedSpace<SO3Space<double>>(3.21));
+// }
+
+// TEST_CASE(KNN_WeightedSpace) {
+//     using namespace unc::robotics::kdtree;
+//     testKNN(WeightedSpace<SO3Space<double>>(3.21), 10000, 1000, 20);
+// }
+
+// TEST_CASE(Add_CompoundSpace_SE3_1to1) {
+//     testAdd(createBoundedSE3Space<double>());
+// }
+
+// TEST_CASE(KNN_CompoundSpace_SE3_1to1) {
+//     testKNN(createBoundedSE3Space<double>(), 10000, 1000, 20);
+// }
+
+// TEST_CASE(Add_CompoundSpace_SE3_5to17) {
+//     testAdd(createRatioWeightedBoundedSE3Space<double, 5, 27>());
+// }
+
+// TEST_CASE(KNN_CompoundSpace_SE3_5to17) {
+//     testKNN(createRatioWeightedBoundedSE3Space<double, 5, 27>(), 10000, 1000, 20);
+// }
 
 TEST_CASE(StaticBuildAndQuery_L2) {
     using namespace unc::robotics::kdtree;
@@ -311,7 +397,7 @@ TEST_CASE(benchmark) {
     benchmark("R^3l2", createBoundedL2Space<double, 3>(), N, k, 1s);
     benchmark("R^6l2", createBoundedL2Space<double, 6>(), N, k, 1s);
     benchmark("SO(3)", SO3Space<double>(), N, k, 1s);
-    benchmark("SE(3)", createBoundedSE3Space<double>(), N, k, 1s);
+    benchmark("SE(3)", createBoundedSE3_1to1Space<double>(), N, k, 1s);
 }
 
 // TODO: two SE3 spaces (compound of compounds)

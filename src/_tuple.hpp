@@ -47,7 +47,7 @@ constexpr decltype(auto) map_impl(_Fn&& fn, _Tuple&& args, std::index_sequence<I
     return std::make_tuple(std::forward<_Fn>(fn)(std::get<I>(std::forward<_Tuple>(args)))...);
 }
 template <typename _Fn, typename ... _T>
-constexpr decltype(auto) map(_Fn&& fn, std::tuple<_T...>&& args) {
+constexpr decltype(auto) map(_Fn&& fn, const std::tuple<_T...>& args) {
     return map_impl(fn, args, std::make_index_sequence<sizeof...(_T)>{});
 }
 template <typename _Fn, typename _Tuple, std::size_t ... I>

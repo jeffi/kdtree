@@ -238,7 +238,7 @@ public:
 
     inline constexpr unsigned dimensions() const {
         using namespace detail;
-        return sum(map(*this, [](auto&& space) { return space.dimensions(); }));
+        return sum(map([](const auto& space) { return space.dimensions(); }, spaces_));
     }
 
     template <typename _State>
@@ -261,6 +261,14 @@ public:
 template <typename ... _Spaces>
 constexpr auto makeCompoundSpace(_Spaces&&... args) {
     return CompoundSpace<typename std::decay<_Spaces>::type...>(std::forward<_Spaces>(args)...);
+}
+
+template <typename _Space>
+constexpr auto makeWeightedSpace(
+    typename _Space::Distance weight,
+    _Space&& space = _Space())
+{
+    return WeightedSpace<_Space>(weight, std::forward<_Space>(space));
 }
 
 template <typename _Scalar, std::intmax_t _qWeight = 1, std::intmax_t _tWeight = 1>
