@@ -68,7 +68,7 @@ void testAdd(const Space& space) {
     
     constexpr std::size_t N = 1000;
    
-    KDTree<TestNode<Key>, Space, TestNodeKey, MidpointSplit> tree(space);
+    KDTree<TestNode<Key>, Space, TestNodeKey, MedianSplit> tree(space);
 
     std::vector<std::pair<Distance, TestNode<Key>>> nearest;
     std::mt19937_64 rng;
@@ -132,7 +132,7 @@ std::pair<double, std::size_t> benchmark(
     typedef typename Space::Distance Distance;
     typedef typename Space::State Key;
 
-    KDTree<TestNode<Key>, Space, TestNodeKey, MidpointSplit> tree(space);
+    KDTree<TestNode<Key>, Space, TestNodeKey, MedianSplit> tree(space);
 
     std::mt19937_64 rng;
     std::vector<TestNode<Key>> nodes;
@@ -163,6 +163,54 @@ std::pair<double, std::size_t> benchmark(
     std::cout << name << ": " << seconds*1e6/count << " us/op" << std::endl;
     
     return std::make_pair(seconds, count);
+}
+
+template <typename Space>
+void testStaticBuildAndQuery(const Space& space, std::size_t N = 10000) {
+    using namespace unc::robotics::kdtree;
+    typedef typename Space::State Key;
+    typedef typename Space::Distance Distance;
+
+    std::size_t Q = 1000;
+    std::size_t k = 20;
+    
+    std::mt19937_64 rng;
+    std::vector<TestNode<Key>> nodes;
+    KDTree<TestNode<Key>, Space, TestNodeKey, MedianSplit, false> tree(space);
+    
+    for (std::size_t i=0 ; i<N ; ++i)
+        nodes.emplace_back(StateSampler<Space>::randomState(rng, space), i);
+
+    tree.build(nodes);
+
+    for (std::size_t i=0 ; i<N ; ++i) {
+        Distance dist;
+        const Key& q = nodes[i].key_;
+        const TestNode<Key>* n = tree.nearest(q, &dist);
+        // close to zero, but not always exactly 0 due to numerical issues
+        EXPECT(dist) == space.distance(q, q);
+        EXPECT(n) != nullptr;
+        EXPECT(n->name_) == nodes[i].name_;
+    }
+
+
+    std::vector<std::pair<Distance, TestNode<Key>>> nearest;
+    nearest.reserve(k);
+    for (std::size_t i=0 ; i<Q ; ++i) {
+        Key q = StateSampler<Space>::randomState(rng, space);
+        tree.nearest(nearest, q, k);
+
+        EXPECT(nearest.size()) == k;
+
+        std::partial_sort(
+            nodes.begin(), nodes.begin() + k, nodes.end(),
+            [&q, &space] (auto& a, auto& b) {
+                return space.distance(q, a.key_) < space.distance(q, b.key_);
+            });
+
+        for (std::size_t j=0 ; j<k ; ++j)
+            EXPECT(nearest[j].second.name_) == nodes[j].name_;
+    }
 }
 
 TEST_CASE(Add_BoundedL2) {
@@ -215,6 +263,43 @@ TEST_CASE(KNN_CompoundSpace_SE3_5to17) {
     testKNN(createRatioWeightedBoundedSE3Space<double, 5, 27>(), 10000, 1000, 20);
 }
 
+TEST_CASE(StaticBuildAndQuery_L2) {
+    using namespace unc::robotics::kdtree;
+    testStaticBuildAndQuery(L2Space<double, 3>());
+}
+
+TEST_CASE(StaticBuildAndQuery_BoundedL2) {
+    testStaticBuildAndQuery(createBoundedL2Space<double, 3>());
+}
+
+TEST_CASE(StaticBuildAndQuery_SO3) {
+    testStaticBuildAndQuery(unc::robotics::kdtree::SO3Space<double>());
+}
+
+TEST_CASE(StaticBuildAndQuery_SE3) {
+    using namespace unc::robotics::kdtree;
+    testStaticBuildAndQuery(
+        CompoundSpace<SO3Space<double>, L2Space<double, 3>>());
+}
+
+TEST_CASE(StaticBuildAndQuery_SE3_5to17) {
+    using namespace unc::robotics::kdtree;
+    testStaticBuildAndQuery(
+        CompoundSpace<
+            RatioWeightedSpace<SO3Space<double>, std::ratio<5>>,
+            RatioWeightedSpace<L2Space<double, 3>, std::ratio<17>>>());
+}
+
+TEST_CASE(StaticBuildAndQuery_SE3_PI) {
+    using namespace unc::robotics::kdtree;
+    testStaticBuildAndQuery(
+        CompoundSpace<
+            SO3Space<double>,
+            WeightedSpace<L2Space<double, 3>>>(
+                SO3Space<double>(),
+                WeightedSpace<L2Space<double, 3>>(
+                    M_PI, L2Space<double, 3>())));
+}
 
 TEST_CASE(benchmark) {
     using namespace unc::robotics::kdtree;
@@ -228,3 +313,5 @@ TEST_CASE(benchmark) {
     benchmark("SO(3)", SO3Space<double>(), N, k, 1s);
     benchmark("SE(3)", createBoundedSE3Space<double>(), N, k, 1s);
 }
+
+// TODO: two SE3 spaces (compound of compounds)

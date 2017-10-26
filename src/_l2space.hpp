@@ -54,7 +54,7 @@ struct MidpointAddTraversal<_Node, BoundedL2Space<_Scalar, _dimensions>>
     using MidpointBoundedL2TraversalBase<_Scalar, _dimensions>::bounds_;
     using MidpointBoundedL2TraversalBase<_Scalar, _dimensions>::MidpointBoundedL2TraversalBase;
 
-    constexpr _Scalar maxAxis(unsigned *axis) {
+    constexpr _Scalar maxAxis(unsigned *axis) const {
         return (this->bounds_.col(1) - this->bounds_.col(0)).maxCoeff(axis);
     }
 
@@ -95,7 +95,7 @@ struct MidpointNearestTraversal<_Node, BoundedL2Space<_Scalar, _dimensions>>
     }
 
     template <typename _Derived>
-    constexpr _Scalar keyDistance(const Eigen::MatrixBase<_Derived>& q) {
+    constexpr _Scalar keyDistance(const Eigen::MatrixBase<_Derived>& q) const {
         return (this->key_ - q).norm();
     }
 
@@ -135,6 +135,112 @@ struct MidpointNearestTraversal<_Node, BoundedL2Space<_Scalar, _dimensions>>
             distToRegionCache_ = oldDist;
         }
     }
+};
+
+template <typename _Scalar, int _dimensions>
+struct MedianAccum<L2Space<_Scalar, _dimensions>> {
+    typedef _Scalar Scalar;
+    typedef L2Space<Scalar, _dimensions> Space;
+    
+    Eigen::Array<_Scalar, _dimensions, 1> min_;
+    Eigen::Array<_Scalar, _dimensions, 1> max_;
+
+    inline MedianAccum(const Space& space)
+        : min_(space.dimensions()),
+          max_(space.dimensions())
+    {
+    }
+
+    constexpr unsigned dimensions() const {
+        return min_.rows();
+    }
+
+    template <typename _Derived>
+    void init(const Eigen::MatrixBase<_Derived>& q) {
+        min_ = q;
+        max_ = q;
+    }
+
+    template <typename _Derived>
+    void accum(const Eigen::MatrixBase<_Derived>& q) {
+        min_ = min_.min(q.array());
+        max_ = max_.max(q.array());
+    }
+
+    constexpr Scalar maxAxis(unsigned *axis) const {
+        return (max_ - min_).maxCoeff(axis);
+    }
+
+    template <typename _Builder, typename _Iter, typename _GetKey>
+    void partition(_Builder& builder, unsigned axis, _Iter begin, _Iter end, const _GetKey& getKey) {
+        _Iter mid = begin + (std::distance(begin, end)-1)/2;
+        std::nth_element(begin, mid, end, [&] (auto& a, auto& b) {
+            return getKey(a)[axis] < getKey(b)[axis];
+        });
+        std::iter_swap(begin, mid);
+        
+        _Builder::setSplit(*begin, getKey(*begin)[axis]);
+        // begin->split_ = getKey(*begin)[axis];
+        
+        builder(++begin, ++mid);
+        builder(mid, end);
+    }
+};
+
+template <typename _Scalar, int _dimensions>
+struct MedianAccum<BoundedL2Space<_Scalar, _dimensions>>
+    : MedianAccum<L2Space<_Scalar, _dimensions>>
+{
+    using MedianAccum<L2Space<_Scalar, _dimensions>>::MedianAccum;
+};
+
+template <typename _Scalar, int _dimensions>
+struct MedianNearestTraversal<L2Space<_Scalar, _dimensions>> {
+    typedef L2Space<_Scalar, _dimensions> Space;
+    typedef typename Space::State Key;
+    typedef typename Space::Distance Distance;
+    
+    const Key& key_;
+
+    Eigen::Array<_Scalar, _dimensions, 1> regionDeltas_;
+
+    MedianNearestTraversal(const Space& space, const Key& key)
+        : key_(key),
+          regionDeltas_(space.dimensions())
+    {
+        regionDeltas_.setZero();
+    }
+
+    Distance distToRegion() const {
+        return std::sqrt(regionDeltas_.sum());
+    }
+
+    template <typename _Derived>
+    Distance keyDistance(const Eigen::MatrixBase<_Derived>& q) const {
+        return (key_ - q).norm();
+    }
+    
+    template <typename _Nearest, typename _Iter>
+    void traverse(_Nearest& nearest, unsigned axis, _Iter begin, _Iter end) {
+        const auto& n = *begin++;
+        std::array<_Iter, 3> iters{{begin, begin + std::distance(begin, end)/2, end}};
+        Distance delta = _Nearest::split(n) - key_[axis];
+        int childNo = delta < 0;
+        nearest(iters[childNo], iters[childNo+1]);
+        nearest.update(n);
+        delta *= delta;
+        std::swap(regionDeltas_[axis], delta);
+        if (nearest.shouldTraverse())
+            nearest(iters[1-childNo], iters[2-childNo]);
+        regionDeltas_[axis] = delta;
+    }
+};
+
+template <typename _Scalar, int _dimensions>
+struct MedianNearestTraversal<BoundedL2Space<_Scalar, _dimensions>>
+    : MedianNearestTraversal<L2Space<_Scalar, _dimensions>>
+{
+    using MedianNearestTraversal<L2Space<_Scalar, _dimensions>>::MedianNearestTraversal;
 };
 
 }}}}

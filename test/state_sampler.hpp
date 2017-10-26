@@ -4,15 +4,31 @@ template <typename _Space>
 struct StateSampler {};
 
 template <typename _Scalar, int _dimensions>
-struct StateSampler<unc::robotics::kdtree::BoundedL2Space<_Scalar,_dimensions>> {
-    typedef unc::robotics::kdtree::BoundedL2Space<_Scalar,_dimensions> Space;
+struct StateSampler<unc::robotics::kdtree::BoundedL2Space<_Scalar, _dimensions>> {
+    typedef unc::robotics::kdtree::BoundedL2Space<_Scalar, _dimensions> Space;
+    typedef typename Space::State State;
     
     template <typename _RNG>
-    static typename Space::State
-    randomState(_RNG& rng, const Space& space) {
-        typename Space::State q;
-        for (int i=0 ; i<_dimensions ; ++i) {
+    static State randomState(_RNG& rng, const Space& space) {
+        State q;
+        for (int i=0 ; i<space.dimensions() ; ++i) {
             std::uniform_real_distribution<_Scalar> dist(space.bounds(i, 0), space.bounds(i, 1));
+            q[i] = dist(rng);
+        }
+        return q;
+    }
+};
+
+template <typename _Scalar, int _dimensions>
+struct StateSampler<unc::robotics::kdtree::L2Space<_Scalar, _dimensions>> {
+    typedef unc::robotics::kdtree::L2Space<_Scalar, _dimensions> Space;
+    typedef typename Space::State State;
+    
+    template <typename _RNG>
+    static State randomState(_RNG& rng, const Space& space) {
+        State q;
+        std::uniform_real_distribution<_Scalar> dist(-50, 50);
+        for (int i=0 ; i<space.dimensions() ; ++i) {
             q[i] = dist(rng);
         }
         return q;

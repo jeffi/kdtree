@@ -67,13 +67,6 @@ struct MidpointSplitNodeMember<_Node, _destructorDeletes, true> {
 
 namespace detail {
 
-struct CompareFirst {
-    template <typename _First, typename _Second>
-    constexpr bool operator() (const std::pair<_First,_Second>& a, const std::pair<_First,_Second>& b) const {
-        return a.first < b.first;
-    }
-};
-
 // MidpointSplitNode is used in the default non-intrusive KDTree
 // implementation with MidpointSplits.  It extends the value type and
 // adds the required intrusive KDTree child members.
@@ -273,7 +266,7 @@ struct KDTreeMidpointSplitIntrusiveImpl
         {
         }
 
-        constexpr bool shouldTraverse() {
+        constexpr bool shouldTraverse() const {
             return traversal_.distToRegion() <= dist_;
         }
 
