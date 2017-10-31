@@ -255,6 +255,11 @@ auto createBoundedSE3_5to17Space() {
 }
 
 template <typename _Scalar>
+auto createBoundedSE3_31416to10000Space() {
+    return createRatioWeightedBoundedSE3Space<_Scalar, 31416, 10000>();
+}
+
+template <typename _Scalar>
 auto createBoundedSE3_PISpace() {
     using namespace unc::robotics::kdtree;
     return makeCompoundSpace(
@@ -292,6 +297,7 @@ auto createThreeSE3Space() {
     SPLIT_TESTS(name, SO3)                      \
     SPLIT_TESTS(name, BoundedSE3_1to1)          \
     SPLIT_TESTS(name, BoundedSE3_5to17)         \
+    SPLIT_TESTS(name, BoundedSE3_31416to10000)  \
     SPLIT_TESTS(name, BoundedSE3_PI)            \
     SPLIT_TESTS(name, ThreeSE3)
 
