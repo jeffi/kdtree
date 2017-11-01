@@ -159,7 +159,7 @@ void testStaticBuildAndQuery(const Space& space, std::size_t N = 10000) {
     
     std::mt19937_64 rng;
     std::vector<TestNode<Key>> nodes;
-    KDTree<TestNode<Key>, Space, TestNodeKey, MedianSplit, false> tree(space);
+    KDTree<TestNode<Key>, Space, TestNodeKey, MedianSplit, StaticBuild> tree(space);
     
     for (std::size_t i=0 ; i<N ; ++i)
         nodes.emplace_back(StateSampler<Space>::randomState(rng, space), i);

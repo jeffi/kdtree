@@ -244,7 +244,7 @@ template <
     typename _T,
     typename _Space,
     typename _GetKey>
-struct KDTree<_T, _Space, _GetKey, MedianSplit, false, false> {
+struct KDTree<_T, _Space, _GetKey, MedianSplit, StaticBuild, SingleThread> {
     typedef _Space Space;
 
 private:
@@ -357,7 +357,7 @@ template <
     typename _T,
     typename _Space,
     typename _GetKey>
-struct KDTree<_T, _Space, _GetKey, MedianSplit, true, false> {
+struct KDTree<_T, _Space, _GetKey, MedianSplit, DynamicBuild, SingleThread> {
     typedef _Space Space;
 
 private:

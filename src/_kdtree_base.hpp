@@ -38,13 +38,19 @@ namespace unc { namespace robotics { namespace kdtree {
 struct MidpointSplit {};
 struct MedianSplit {};
 
+struct DynamicBuild {};
+struct StaticBuild {};
+
+struct SingleThread {};
+struct MultiThread {};
+
 template <
     typename _T,
     typename _Space,
     typename _GetKey,
     typename _SplitStrategy,
-    bool _dynamic = true,
-    bool _lockfree = false>
+    typename _Construction = DynamicBuild,
+    typename _Locking = SingleThread>
 struct KDTree;
 
 namespace detail {

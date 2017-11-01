@@ -39,12 +39,12 @@ namespace unc { namespace robotics { namespace kdtree {
 
 // When using the intrusive version of the KDTree, the caller must
 // provide a member node.
-template <typename _Node, bool _destructorDeletes, bool _lockfree>
+template <typename _Node, bool _destructorDeletes, typename _Locking>
 struct MidpointSplitNodeMember;
 
 template <typename _Node, bool _destructorDeletes>
-struct MidpointSplitNodeMember<_Node, _destructorDeletes, false> {
-    static constexpr bool lockfree = false;
+struct MidpointSplitNodeMember<_Node, _destructorDeletes, SingleThread> {
+    typedef SingleThread Locking;
         
     std::array<_Node*, 2> children_{};
 
@@ -67,8 +67,8 @@ struct MidpointSplitNodeMember<_Node, _destructorDeletes, false> {
 };
 
 template <typename _Node, bool _destructorDeletes>
-struct MidpointSplitNodeMember<_Node, _destructorDeletes, true> {
-    static constexpr bool lockfree = true;
+struct MidpointSplitNodeMember<_Node, _destructorDeletes, MultiThread> {
+    typedef MultiThread Locking;
     
     std::array<std::atomic<_Node*>, 2> children_{};
 
@@ -99,9 +99,9 @@ namespace detail {
 // MidpointSplitNode is used in the default non-intrusive KDTree
 // implementation with MidpointSplits.  It extends the value type and
 // adds the required intrusive KDTree child members.
-template <typename _T, bool _lockfree>
+template <typename _T, typename _Locking>
 struct MidpointSplitNode : _T {
-    MidpointSplitNodeMember<MidpointSplitNode<_T, _lockfree>, true, _lockfree> children_{};
+    MidpointSplitNodeMember<MidpointSplitNode<_T, _Locking>, true, _Locking> children_{};
 
     MidpointSplitNode(const MidpointSplitNode&) = delete;
     MidpointSplitNode(MidpointSplitNode&&) = delete;
@@ -115,24 +115,24 @@ struct MidpointSplitNode : _T {
 // directly instead.  However, there is a chance the caller could
 // provide a _GetKey that would unexpectectedly handle the derived
 // class of _T that we use in the default implementation.
-template <typename _T, bool _lockfree, typename _GetKey>
+template <typename _T, typename _Locking, typename _GetKey>
 struct MidpointSplitNodeKey : _GetKey {
     inline MidpointSplitNodeKey(const _GetKey& getKey) : _GetKey(getKey) {}
 
-    constexpr decltype(auto) operator() (const MidpointSplitNode<_T, _lockfree>& node) const {
+    constexpr decltype(auto) operator() (const MidpointSplitNode<_T, _Locking>& node) const {
         return _GetKey::operator()(static_cast<const _T&>(node));
     }
 
-    constexpr decltype(auto) operator() (MidpointSplitNode<_T, _lockfree>& node) const {
+    constexpr decltype(auto) operator() (MidpointSplitNode<_T, _Locking>& node) const {
         return _GetKey::operator()(static_cast<_T&>(node));
     }
 };
 
-template <typename _Node, bool _lockfree>
+template <typename _Node, typename _Locking>
 struct MidpointSplitRoot;
 
 template <typename _Node>
-struct MidpointSplitRoot<_Node, false> {
+struct MidpointSplitRoot<_Node, SingleThread> {
     _Node *root_ = nullptr;
     std::size_t size_ = 0;
 
@@ -156,7 +156,7 @@ struct MidpointSplitRoot<_Node, false> {
 };
 
 template <typename _Node>
-struct MidpointSplitRoot<_Node, true> {
+struct MidpointSplitRoot<_Node, MultiThread> {
     std::atomic<_Node*> root_{};
     std::atomic<std::size_t> size_{};
 
@@ -180,11 +180,11 @@ struct MidpointSplitRoot<_Node, true> {
     }
 };
 
-template <bool _lockfree>
+template <typename _Locking>
 struct MidpointAxisCache;
 
 template <>
-struct MidpointAxisCache<false> {
+struct MidpointAxisCache<SingleThread> {
     unsigned axis_;
     MidpointAxisCache* next_;
 
@@ -201,7 +201,7 @@ struct MidpointAxisCache<false> {
 };
 
 template <>
-struct MidpointAxisCache<true> {
+struct MidpointAxisCache<MultiThread> {
     unsigned axis_;
     std::atomic<MidpointAxisCache*> next_{};
 
@@ -231,25 +231,25 @@ template <
     typename _Space,
     typename _GetKey,
     bool _destructorDeletes,
-    bool _lockfree,
-    MidpointSplitNodeMember<_Node, _destructorDeletes, _lockfree> _Node::* _member>
+    typename _Locking,
+    MidpointSplitNodeMember<_Node, _destructorDeletes, _Locking> _Node::* _member>
 struct KDTreeMidpointSplitIntrusiveImpl
 {
     typedef _Space Space;
     typedef _Node Node;
     typedef typename Space::Distance Distance;
     typedef typename Space::State Key;
-    typedef MidpointSplitNodeMember<Node, _destructorDeletes, _lockfree> Member;
+    typedef MidpointSplitNodeMember<Node, _destructorDeletes, _Locking> Member;
 
     Space space_;
     _GetKey getKey_;
 
-    detail::MidpointSplitRoot<Node, _lockfree> root_;
-    MidpointAxisCache<_lockfree> axisCache_;
+    detail::MidpointSplitRoot<Node, _Locking> root_;
+    MidpointAxisCache<_Locking> axisCache_;
 
     struct Adder {
         MidpointAddTraversal<Node, _Space> traversal_;
-        MidpointAxisCache<_lockfree>* axisCache_;
+        MidpointAxisCache<_Locking>* axisCache_;
     
         Adder(KDTreeMidpointSplitIntrusiveImpl& tree, const Key& key)
             : traversal_(tree.space_, key),
@@ -266,7 +266,7 @@ struct KDTreeMidpointSplitIntrusiveImpl
         }
     
         void operator() (Node* p, Node* n) {
-            MidpointAxisCache<_lockfree>* nextAxis = axisCache_->next();
+            MidpointAxisCache<_Locking>* nextAxis = axisCache_->next();
             if (nextAxis == nullptr) {
                 unsigned axis;
                 traversal_.maxAxis(&axis);
@@ -282,7 +282,7 @@ struct KDTreeMidpointSplitIntrusiveImpl
         MidpointNearestTraversal<_Node, _Space> traversal_;
         const KDTreeMidpointSplitIntrusiveImpl& tree_;
         Distance dist_;
-        const MidpointAxisCache<_lockfree>* axisCache_;
+        const MidpointAxisCache<_Locking>* axisCache_;
 
         Nearest(
             const KDTreeMidpointSplitIntrusiveImpl& tree,
@@ -312,7 +312,7 @@ struct KDTreeMidpointSplitIntrusiveImpl
 
         inline void operator() (const _Node* n) {
             if ((n->*_member).hasChild()) {
-                const MidpointAxisCache<_lockfree> *oldCache = axisCache_;
+                const MidpointAxisCache<_Locking> *oldCache = axisCache_;
                 axisCache_ = axisCache_->next();
                 traversal_.traverse(*this, n, axisCache_->axis_);
                 axisCache_ = oldCache;
@@ -431,32 +431,32 @@ template <
     typename _T,
     typename _Space,
     typename _GetKey,
-    bool _lockfree>
-struct KDTree<_T, _Space, _GetKey, ::unc::robotics::kdtree::MidpointSplit, true, _lockfree>
+    typename _Locking>
+struct KDTree<_T, _Space, _GetKey, MidpointSplit, DynamicBuild, _Locking>
     : private detail::KDTreeMidpointSplitIntrusiveImpl<
-         detail::MidpointSplitNode<_T, _lockfree>,
+         detail::MidpointSplitNode<_T, _Locking>,
          _Space,
-         detail::MidpointSplitNodeKey<_T, _lockfree, _GetKey>,
+         detail::MidpointSplitNodeKey<_T, _Locking, _GetKey>,
          true,
-         _lockfree,
-         &detail::MidpointSplitNode<_T, _lockfree>::children_>
+         _Locking,
+         &detail::MidpointSplitNode<_T, _Locking>::children_>
 {    
     typedef detail::KDTreeMidpointSplitIntrusiveImpl<
-        detail::MidpointSplitNode<_T, _lockfree>,
+        detail::MidpointSplitNode<_T, _Locking>,
         _Space,
-        detail::MidpointSplitNodeKey<_T, _lockfree, _GetKey>,
+        detail::MidpointSplitNodeKey<_T, _Locking, _GetKey>,
         true,
-        _lockfree,
-        &detail::MidpointSplitNode<_T, _lockfree>::children_> Base;
+        _Locking,
+        &detail::MidpointSplitNode<_T, _Locking>::children_> Base;
     
     typedef _Space Space;
     typedef typename Space::Distance Distance;
     typedef typename Space::State Key;
-    typedef detail::MidpointSplitNode<_T, _lockfree> Node;
+    typedef detail::MidpointSplitNode<_T, _Locking> Node;
     
 public:
     KDTree(const Space& space, const _GetKey& getKey = _GetKey())
-        : Base(space, detail::MidpointSplitNodeKey<_T, _lockfree, _GetKey>(getKey))
+        : Base(space, detail::MidpointSplitNodeKey<_T, _Locking, _GetKey>(getKey))
     {
     }
     
