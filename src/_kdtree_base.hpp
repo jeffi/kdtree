@@ -50,7 +50,8 @@ template <
     typename _GetKey,
     typename _SplitStrategy,
     typename _Construction = DynamicBuild,
-    typename _Locking = SingleThread>
+    typename _Locking = SingleThread,
+    typename _Allocator = std::allocator<_T>>
 struct KDTree;
 
 namespace detail {
@@ -105,6 +106,26 @@ clz(T x) { return __builtin_clzll(x); }
 template <typename UInt>
 constexpr int log2(UInt x) { return sizeof(x)*8 - 1 - clz(x); }
 
+
+template <typename _Allocator>
+struct AllocatorDestructor {
+    typedef std::allocator_traits<_Allocator> AllocatorTraits;
+    typedef typename AllocatorTraits::pointer pointer;
+    typedef typename AllocatorTraits::size_type size_type;
+
+    _Allocator& allocator_;
+    size_type count_;
+
+    inline AllocatorDestructor(_Allocator& allocator, size_type count)
+        : allocator_(allocator),
+          count_(count)
+    {
+    }
+
+    inline void operator() (pointer p) {
+        AllocatorTraits::deallocate(allocator_, p, count_);
+    }
+};
 
 }}}}
 

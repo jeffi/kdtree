@@ -180,15 +180,16 @@ struct MidpointAddTraversal<_Node, CompoundSpace<_Spaces...>> {
     const Space& space_;
     std::tuple<MidpointAddTraversal<_Node, _Spaces>...> traversals_;
 
-    template <std::size_t ... I>
-    MidpointAddTraversal(const Space& space, const Key& key, std::index_sequence<I...>)
+    template <typename _Key, std::size_t ... I>
+    MidpointAddTraversal(const Space& space, const _Key& key, std::index_sequence<I...>)
         : space_(space),
           traversals_(MidpointAddTraversal<_Node, typename std::tuple_element<I, Tuple>::type>(
                           std::get<I>(space), std::get<I>(key))...)
     {
     }
 
-    MidpointAddTraversal(const Space& space, const Key& key)
+    template <typename _Key>
+    MidpointAddTraversal(const Space& space, const _Key& key)
         : MidpointAddTraversal(space, key, std::make_index_sequence<sizeof...(_Spaces)>{})
     {
     }
@@ -220,16 +221,17 @@ struct MidpointNearestTraversal<_Node, CompoundSpace<_Spaces...>> {
     const Space& space_;
     std::tuple<MidpointNearestTraversal<_Node, _Spaces>...> traversals_;
 
-    template <std::size_t ... I>
+    template <typename _Key, std::size_t ... I>
     MidpointNearestTraversal(
-        const Space& space, const Key& key, std::index_sequence<I...>)
+        const Space& space, const _Key& key, std::index_sequence<I...>)
         : space_(space),
           traversals_(MidpointNearestTraversal<_Node, typename std::tuple_element<I, Tuple>::type>(
                           std::get<I>(space), std::get<I>(key))...)
     {
     }
 
-    MidpointNearestTraversal(const Space& space, const Key& key)
+    template <typename _Key>
+    MidpointNearestTraversal(const Space& space, const _Key& key)
         : MidpointNearestTraversal(space, key, std::make_index_sequence<sizeof...(_Spaces)>{})
     {
     }
@@ -270,12 +272,14 @@ struct CompoundMedianHelper {
         return Next::dimensions(accums, sum + std::get<_index>(accums).dimensions());
     }
 
-    static void init(Accums& accums, const Key& q) {
+    template <typename _Key>
+    static void init(Accums& accums, const _Key& q) {
         std::get<_index>(accums).init(std::get<_index>(q));
         return Next::init(accums, q);
     }
 
-    static void accum(Accums& accums, const Key& q) {
+    template <typename _Key>
+    static void accum(Accums& accums, const _Key& q) {
         std::get<_index>(accums).accum(std::get<_index>(q));
         return Next::accum(accums, q);
     }
@@ -300,7 +304,7 @@ struct CompoundMedianHelper {
         if (axis < dim) {
             std::get<_index>(accums).partition(
                 builder, axis, begin, end,
-                [&] (auto& t) -> auto& { return std::get<_index>(getKey(t)); });
+                [&] (auto& t) { return std::get<_index>(getKey(t)); }); // TODO: -> const auto& needed?
         } else {
             Next::partition(accums, builder, axis - dim, begin, end, getKey);
         }
@@ -342,11 +346,13 @@ struct CompoundMedianHelper<sizeof...(_Spaces)-1, _Spaces...> {
         return sum + std::get<_index>(accums).dimensions();
     }
 
-    static void init(Accums& accums, const Key& q) {
+    template <typename _Key>
+    static void init(Accums& accums, const _Key& q) {
         std::get<_index>(accums).init(std::get<_index>(q));
     }
 
-    static void accum(Accums& accums, const Key& q) {
+    template <typename _Key>
+    static void accum(Accums& accums, const _Key& q) {
         std::get<_index>(accums).accum(std::get<_index>(q));
     }
 
@@ -368,7 +374,7 @@ struct CompoundMedianHelper<sizeof...(_Spaces)-1, _Spaces...> {
     {
         std::get<_index>(accums).partition(
             builder, axis, begin, end,
-            [&] (auto& t) -> auto& { return std::get<_index>(getKey(t)); });
+            [&] (auto& t) { return std::get<_index>(getKey(t)); }); // TODO: -> const auto&  needed?
     }
 
     static Distance distToRegion(const Traversals& traversals, Distance sum)  {
@@ -443,16 +449,17 @@ struct MedianNearestTraversal<CompoundSpace<_Spaces...>> {
 
     std::tuple<MedianNearestTraversal<_Spaces>...> traversals_;
 
-    template <std::size_t ... I>
-    MedianNearestTraversal(const Space& space, const Key& key, std::index_sequence<I...>)
+    template <typename _Key, std::size_t ... I>
+    MedianNearestTraversal(const Space& space, const _Key& key, std::index_sequence<I...>)
         : traversals_(
             MedianNearestTraversal<typename std::tuple_element<I, Tuple>::type>(
                 std::get<I>(space),
                 std::get<I>(key))...)
     {
     }
-    
-    MedianNearestTraversal(const Space& space, const Key& key)
+
+    template <typename _Key>
+    MedianNearestTraversal(const Space& space, const _Key& key)
         : MedianNearestTraversal(space, key, std::make_index_sequence<sizeof...(_Spaces)>{})
     {
     }

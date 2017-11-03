@@ -126,8 +126,9 @@ struct MedianNearest {
     const Tree& tree_;
     MedianNearestTraversal<Space> traversal_;
     Distance dist_;
-    
-    MedianNearest(const Tree& tree, const Key& key, Distance dist)
+
+    template <typename _Key>
+    MedianNearest(const Tree& tree, const _Key& key, Distance dist)
         : tree_(tree), traversal_(tree.space(), key), dist_(dist)
     {
     }
@@ -191,14 +192,14 @@ struct MedianNearest1
     }
 };
 
-template <typename _Tree, typename _Allocator, typename _Value, typename _NodeValueFn>
+template <typename _Tree, typename _ResultAllocator, typename _Value, typename _NodeValueFn>
 struct MedianNearestK
-    : MedianNearest<MedianNearestK<_Tree, _Allocator, _Value, _NodeValueFn>, _Tree>
+    : MedianNearest<MedianNearestK<_Tree, _ResultAllocator, _Value, _NodeValueFn>, _Tree>
 {
     typedef _Tree Tree;
     typedef _Value Value;
     typedef _NodeValueFn NodeValueFn;
-    typedef MedianNearest<MedianNearestK<Tree, _Allocator, Value, NodeValueFn>, Tree> Base;
+    typedef MedianNearest<MedianNearestK<Tree, _ResultAllocator, Value, NodeValueFn>, Tree> Base;
     typedef typename _Tree::Space Space;
     typedef typename Space::State Key;
     typedef typename Space::Distance Distance;
@@ -207,15 +208,16 @@ struct MedianNearestK
     using Base::dist_;
 
     std::size_t k_;
-    std::vector<std::pair<Distance, Value>, _Allocator>& nearest_;
+    std::vector<std::pair<Distance, Value>, _ResultAllocator>& nearest_;
     NodeValueFn nodeValueFn_;
 
+    template <typename _Key>
     MedianNearestK(
         const Tree& tree,
-        const Key& key,
+        const _Key& key,
         Distance dist,
         std::size_t k,
-        std::vector<std::pair<Distance, Value>, _Allocator>& nearest,
+        std::vector<std::pair<Distance, Value>, _ResultAllocator>& nearest,
         NodeValueFn&& nodeValueFn)
         : Base(tree, key, dist), k_(k), nearest_(nearest), nodeValueFn_(nodeValueFn)
     {
@@ -243,8 +245,9 @@ struct MedianNearestK
 template <
     typename _T,
     typename _Space,
-    typename _GetKey>
-struct KDTree<_T, _Space, _GetKey, MedianSplit, StaticBuild, SingleThread> {
+    typename _GetKey,
+    typename _Allocator>
+struct KDTree<_T, _Space, _GetKey, MedianSplit, StaticBuild, SingleThread, _Allocator> {
     typedef _Space Space;
 
 private:
@@ -254,20 +257,24 @@ private:
     
     typedef detail::MedianSplitNode<_T, Distance> Node;
     typedef detail::MedianSplitNodeKey<_T, Distance, _GetKey> GetNodeKey;
+
+    typedef std::allocator_traits<_Allocator> AllocatorTraits;
+    typedef typename AllocatorTraits::template rebind_alloc<Node> NodeAllocator;
     
     static constexpr auto member_ = &Node::hook_;
     
     Space space_;
     GetNodeKey getNodeKey_;
     
-    std::vector<Node> nodes_;
+    std::vector<Node, NodeAllocator> nodes_;
 
     template<typename, typename> friend struct detail::MedianNearest;
     
 public:
-    KDTree(const Space& space, const _GetKey& getKey = _GetKey())
+    KDTree(const Space& space, const _GetKey& getKey = _GetKey(), const _Allocator& alloc = _Allocator())
         : space_(space),
-          getNodeKey_(getKey)
+          getNodeKey_(getKey),
+          nodes_(NodeAllocator(alloc))
     {
     }
 
@@ -322,9 +329,9 @@ public:
         return &(nearest.nearest_->data_);
     }
 
-    template <typename _Allocator, typename _Value, typename _NodeValueFn>
+    template <typename _ResultAllocator, typename _Value, typename _NodeValueFn>
     void nearest(
-        std::vector<std::pair<Distance, _Value>, _Allocator>& result,
+        std::vector<std::pair<Distance, _Value>, _ResultAllocator>& result,
         const Key& key,
         std::size_t k,
         Distance maxRadius,
@@ -334,16 +341,16 @@ public:
         if (k == 0)
             return;
 
-        detail::MedianNearestK<KDTree, _Allocator, _Value, _NodeValueFn> nearest(
+        detail::MedianNearestK<KDTree, _ResultAllocator, _Value, _NodeValueFn> nearest(
             *this, key, maxRadius, k, result, std::forward<_NodeValueFn>(nodeValueFn));
         
         nearest(nodes_.begin(), nodes_.end());
         std::sort_heap(result.begin(), result.end(), detail::CompareFirst());
     }
 
-    template <typename _Allocator>
+    template <typename _ResultAllocator>
     void nearest(
-        std::vector<std::pair<Distance, _T>, _Allocator>& result,
+        std::vector<std::pair<Distance, _T>, _ResultAllocator>& result,
         const Key& key,
         std::size_t k,
         Distance maxRadius = std::numeric_limits<Distance>::infinity()) const
@@ -356,8 +363,9 @@ public:
 template <
     typename _T,
     typename _Space,
-    typename _GetKey>
-struct KDTree<_T, _Space, _GetKey, MedianSplit, DynamicBuild, SingleThread> {
+    typename _GetKey,
+    typename _Allocator>
+struct KDTree<_T, _Space, _GetKey, MedianSplit, DynamicBuild, SingleThread, _Allocator> {
     typedef _Space Space;
 
 private:
@@ -398,7 +406,8 @@ private:
             nearest.updateX(*it);
     }
 
-    constexpr const Key& getNodeKey_(const Node& node) const {
+    // TODO: change to reference
+    constexpr decltype(auto) getNodeKey_(const Node& node) const {
         return builder_.getKey_(node);
     }
 
@@ -430,8 +439,9 @@ public:
         if (newTreeSize >= minStaticTreeSize_)
             builder_(nodes_.end() - newTreeSize, nodes_.end());
     }
-    
-    const _T* nearest(const Key& key, Distance *distOut = nullptr) const {
+
+    template <typename _Key>
+    const _T* nearest(const _Key& key, Distance *distOut = nullptr) const {
         if (empty())
             return nullptr;
 
@@ -443,10 +453,10 @@ public:
         return &(nearest.nearest_->data_);
     }
 
-    template <typename _Allocator, typename _Value, typename _NodeValueFn>
+    template <typename _Key, typename _ResultAllocator, typename _Value, typename _NodeValueFn>
     void nearest(
-        std::vector<std::pair<Distance, _Value>, _Allocator>& result,
-        const Key& key,
+        std::vector<std::pair<Distance, _Value>, _ResultAllocator>& result,
+        const _Key& key,
         std::size_t k,
         Distance maxRadius,
         _NodeValueFn&& nodeValueFn) const
@@ -455,16 +465,16 @@ public:
         if (k == 0)
             return;
 
-        detail::MedianNearestK<KDTree, _Allocator, _Value, _NodeValueFn> nearest(
+        detail::MedianNearestK<KDTree, _ResultAllocator, _Value, _NodeValueFn> nearest(
             *this, key, maxRadius, k, result, std::forward<_NodeValueFn>(nodeValueFn));
         scanTrees(nearest);
         std::sort_heap(result.begin(), result.end(), detail::CompareFirst());
     }
 
-    template <typename _Allocator>
+    template <typename _Key, typename _ResultAllocator>
     void nearest(
-        std::vector<std::pair<Distance, _T>, _Allocator>& result,
-        const Key& key,
+        std::vector<std::pair<Distance, _T>, _ResultAllocator>& result,
+        const _Key& key,
         std::size_t k,
         Distance maxRadius = std::numeric_limits<Distance>::infinity()) const
     {

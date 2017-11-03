@@ -39,24 +39,17 @@ namespace unc { namespace robotics { namespace kdtree {
 
 // When using the intrusive version of the KDTree, the caller must
 // provide a member node.
-template <typename _Node, bool _destructorDeletes, typename _Locking>
+template <typename _Node, typename _Locking>
 struct MidpointSplitNodeMember;
 
-template <typename _Node, bool _destructorDeletes>
-struct MidpointSplitNodeMember<_Node, _destructorDeletes, SingleThread> {
+template <typename _Node>
+struct MidpointSplitNodeMember<_Node, SingleThread> {
     typedef SingleThread Locking;
         
     std::array<_Node*, 2> children_{};
 
     MidpointSplitNodeMember(const MidpointSplitNodeMember&) = delete;
     
-    ~MidpointSplitNodeMember() {
-        if (_destructorDeletes) {
-            delete children_[0];
-            delete children_[1];
-        }
-    }
-
     constexpr _Node* child(int no) { return children_[no]; }
     constexpr const _Node* child(int no) const { return children_[no]; }
     inline constexpr bool hasChild() const { return children_[0] != children_[1]; }
@@ -66,21 +59,14 @@ struct MidpointSplitNodeMember<_Node, _destructorDeletes, SingleThread> {
     }
 };
 
-template <typename _Node, bool _destructorDeletes>
-struct MidpointSplitNodeMember<_Node, _destructorDeletes, MultiThread> {
+template <typename _Node>
+struct MidpointSplitNodeMember<_Node, MultiThread> {
     typedef MultiThread Locking;
     
     std::array<std::atomic<_Node*>, 2> children_{};
 
     MidpointSplitNodeMember(const MidpointSplitNodeMember&) = delete;
     
-    ~MidpointSplitNodeMember() {
-        if (_destructorDeletes) {
-            delete children_[0].load(std::memory_order_acquire);
-            delete children_[1].load(std::memory_order_acquire);
-        }
-    }
-
     constexpr _Node* child(int no) { return children_[no].load(std::memory_order_acquire); }
     constexpr const _Node* child(int no) const {
         return children_[no].load(std::memory_order_relaxed);
@@ -100,15 +86,17 @@ namespace detail {
 // implementation with MidpointSplits.  It extends the value type and
 // adds the required intrusive KDTree child members.
 template <typename _T, typename _Locking>
-struct MidpointSplitNode : _T {
-    MidpointSplitNodeMember<MidpointSplitNode<_T, _Locking>, true, _Locking> children_{};
+struct MidpointSplitNode {
+    _T value_;
+    
+    MidpointSplitNodeMember<MidpointSplitNode<_T, _Locking>, _Locking> children_{};
 
     MidpointSplitNode(const MidpointSplitNode&) = delete;
     MidpointSplitNode(MidpointSplitNode&&) = delete;
     
-    MidpointSplitNode(const _T& value) : _T(value) {}
+    MidpointSplitNode(const _T& value) : value_(value) {}
     template <typename ... _Args>
-    MidpointSplitNode(_Args&& ... args) : _T(std::forward<_Args>(args)...) {}
+    MidpointSplitNode(_Args&& ... args) : value_(std::forward<_Args>(args)...) {}
 };
 
 // This class is usually not require, and _GetKey could be used
@@ -120,30 +108,29 @@ struct MidpointSplitNodeKey : _GetKey {
     inline MidpointSplitNodeKey(const _GetKey& getKey) : _GetKey(getKey) {}
 
     constexpr decltype(auto) operator() (const MidpointSplitNode<_T, _Locking>& node) const {
-        return _GetKey::operator()(static_cast<const _T&>(node));
+        return _GetKey::operator()(static_cast<const _T&>(node.value_));
     }
 
     constexpr decltype(auto) operator() (MidpointSplitNode<_T, _Locking>& node) const {
-        return _GetKey::operator()(static_cast<_T&>(node));
+        return _GetKey::operator()(static_cast<_T&>(node.value_));
     }
 };
 
-template <typename _Node, typename _Locking>
+template <typename _Node, typename _Locking, typename _Allocator>
 struct MidpointSplitRoot;
 
-template <typename _Node>
-struct MidpointSplitRoot<_Node, SingleThread> {
+template <typename _Node, typename _Allocator>
+struct MidpointSplitRoot<_Node, SingleThread, _Allocator> : _Allocator {
     _Node *root_ = nullptr;
     std::size_t size_ = 0;
 
-    ~MidpointSplitRoot() {
-        // TODO: this is used by the intrusive version to hold the
-        // root, but the caller is responsible for allocation and thus
-        // should be responsible for the delete.
-        delete root_;
-    }
+    MidpointSplitRoot(const _Allocator& alloc) : _Allocator(alloc) {}
 
     constexpr const _Node* get() const {
+        return root_;
+    }
+
+    constexpr _Node* get() {
         return root_;
     }
 
@@ -155,20 +142,19 @@ struct MidpointSplitRoot<_Node, SingleThread> {
     }
 };
 
-template <typename _Node>
-struct MidpointSplitRoot<_Node, MultiThread> {
+template <typename _Node, typename _Allocator>
+struct MidpointSplitRoot<_Node, MultiThread, _Allocator> : _Allocator {
     std::atomic<_Node*> root_{};
     std::atomic<std::size_t> size_{};
 
-    ~MidpointSplitRoot() {
-        // TODO: this is used by the intrusive version to hold the
-        // root, but the caller is responsible for allocation and thus
-        // should be responsible for the delete.
-        delete root_.load();
-    }
-
+    MidpointSplitRoot(const _Allocator& alloc) : _Allocator(alloc) {}
+    
     constexpr const _Node* get() const {
         return root_.load(std::memory_order_relaxed);
+    }
+
+    constexpr _Node* get() {
+        return root_.load(std::memory_order_acquire);
     }
 
     inline _Node* update(_Node *node) {
@@ -189,14 +175,17 @@ struct MidpointAxisCache<SingleThread> {
     MidpointAxisCache* next_;
 
     MidpointAxisCache(unsigned axis) : axis_(axis), next_(nullptr) {}
-    ~MidpointAxisCache() {
-        delete next_;
-    }
 
     constexpr MidpointAxisCache* next() { return next_; }
     constexpr const MidpointAxisCache* next() const { return next_; }
-    inline MidpointAxisCache* next(unsigned axis) {
-        return next_ = new MidpointAxisCache(axis);
+
+    template <typename _Allocator>
+    inline MidpointAxisCache* next(unsigned axis, _Allocator& allocator) {
+        // return next_ = new MidpointAxisCache(axis);
+        typedef std::allocator_traits<_Allocator> Traits;
+        MidpointAxisCache *n = Traits::allocate(allocator, 1);
+        Traits::construct(allocator, n, axis);
+        return next_ = n;
     }
 };
 
@@ -206,22 +195,25 @@ struct MidpointAxisCache<MultiThread> {
     std::atomic<MidpointAxisCache*> next_{};
 
     MidpointAxisCache(unsigned axis) : axis_(axis) {}
-    ~MidpointAxisCache() {
-        delete next_.load();
-    }
 
     constexpr MidpointAxisCache* next() { return next_.load(std::memory_order_acquire); }
     constexpr const MidpointAxisCache* next() const { return next_.load(std::memory_order_acquire); }
-    
-    MidpointAxisCache* next(unsigned axis) {
-        MidpointAxisCache* next = new MidpointAxisCache(axis);
+
+    template <typename _Allocator>
+    MidpointAxisCache* next(unsigned axis, _Allocator& allocator) {
+        typedef std::allocator_traits<_Allocator> Traits;
+        // MidpointAxisCache* next = new MidpointAxisCache(axis);
+        MidpointAxisCache* next = Traits::allocate(allocator, 1);
+        Traits::construct(allocator, next, axis);
         MidpointAxisCache* prev = nullptr;
         if (next_.compare_exchange_strong(prev, next))
             return next;
         
         // other thread beat this thread to the update.
         assert(prev->axis_ == axis);
-        delete next;
+        // delete next;
+        Traits::destroy(allocator, next);
+        Traits::deallocate(allocator, next, 1);
         return prev;
     }
 };
@@ -230,29 +222,34 @@ template <
     typename _Node,
     typename _Space,
     typename _GetKey,
-    bool _destructorDeletes,
     typename _Locking,
-    MidpointSplitNodeMember<_Node, _destructorDeletes, _Locking> _Node::* _member>
+    MidpointSplitNodeMember<_Node, _Locking> _Node::* _member,
+    typename _Allocator = std::allocator<_Node>>
 struct KDTreeMidpointSplitIntrusiveImpl
 {
     typedef _Space Space;
     typedef _Node Node;
     typedef typename Space::Distance Distance;
     typedef typename Space::State Key;
-    typedef MidpointSplitNodeMember<Node, _destructorDeletes, _Locking> Member;
+    typedef MidpointSplitNodeMember<Node, _Locking> Member;
+    typedef MidpointAxisCache<_Locking> AxisCache;
+
+    typedef std::allocator_traits<_Allocator> AllocatorTraits;
+    typedef typename AllocatorTraits::template rebind_alloc<AxisCache> AxisCacheAllocator;
 
     Space space_;
     _GetKey getKey_;
+    MidpointSplitRoot<Node, _Locking, _Allocator> root_;
+    AxisCache axisCache_;
 
-    detail::MidpointSplitRoot<Node, _Locking> root_;
-    MidpointAxisCache<_Locking> axisCache_;
-
-    struct Adder {
+    struct Adder : AxisCacheAllocator {
         MidpointAddTraversal<Node, _Space> traversal_;
         MidpointAxisCache<_Locking>* axisCache_;
-    
-        Adder(KDTreeMidpointSplitIntrusiveImpl& tree, const Key& key)
-            : traversal_(tree.space_, key),
+
+        template <typename _Key>
+        Adder(KDTreeMidpointSplitIntrusiveImpl& tree, const _Key& key)
+            : AxisCacheAllocator(tree.root_), // root is an allocator
+              traversal_(tree.space_, key),
               axisCache_(&tree.axisCache_)
         {
         }
@@ -270,7 +267,7 @@ struct KDTreeMidpointSplitIntrusiveImpl
             if (nextAxis == nullptr) {
                 unsigned axis;
                 traversal_.maxAxis(&axis);
-                nextAxis = axisCache_->next(axis);
+                nextAxis = axisCache_->next(axis, *this); // *this is an allocator
             }
             axisCache_ = nextAxis;
             traversal_.addImpl(*this, axisCache_->axis_, p, n);
@@ -284,9 +281,10 @@ struct KDTreeMidpointSplitIntrusiveImpl
         Distance dist_;
         const MidpointAxisCache<_Locking>* axisCache_;
 
+        template <typename _Key>
         Nearest(
             const KDTreeMidpointSplitIntrusiveImpl& tree,
-            const Key& key,
+            const _Key& key,
             Distance dist = std::numeric_limits<Distance>::infinity())
             : traversal_(tree.space_, key),
               tree_(tree),
@@ -334,18 +332,19 @@ struct KDTreeMidpointSplitIntrusiveImpl
         }
     };
 
-    template <typename _Value, typename _Allocator, typename _NodeValueFn>
-    struct NearestK : Nearest<NearestK<_Value, _Allocator, _NodeValueFn>> {
-        std::vector<std::pair<Distance, _Value>, _Allocator>& nearest_;
+    template <typename _Value, typename _ResultAllocator, typename _NodeValueFn>
+    struct NearestK : Nearest<NearestK<_Value, _ResultAllocator, _NodeValueFn>> {
+        std::vector<std::pair<Distance, _Value>, _ResultAllocator>& nearest_;
         std::size_t k_;
         _NodeValueFn nodeValueFn_;
 
         using Nearest<NearestK>::dist_;
-        
+
+        template <typename _Key>
         NearestK(
             const KDTreeMidpointSplitIntrusiveImpl& tree,
-            std::vector<std::pair<Distance, _Value>, _Allocator>& result,
-            const Key& key,
+            std::vector<std::pair<Distance, _Value>, _ResultAllocator>& result,
+            const _Key& key,
             std::size_t k,
             Distance dist,
             const _NodeValueFn& nodeValueFn)
@@ -371,15 +370,47 @@ struct KDTreeMidpointSplitIntrusiveImpl
     };
 
     
-    KDTreeMidpointSplitIntrusiveImpl(const Space& space, const _GetKey& getKey)
+    KDTreeMidpointSplitIntrusiveImpl(
+        const Space& space,
+        const _GetKey& getKey,
+        const _Allocator& alloc = _Allocator())
         : space_(space),
           getKey_(getKey),
+          root_(alloc),
           axisCache_(~0)
     {
     }
 
+    ~KDTreeMidpointSplitIntrusiveImpl() {
+        typedef std::allocator_traits<AxisCacheAllocator> Traits;
+        AxisCacheAllocator alloc(root_);
+        
+        for (AxisCache *n, *c = axisCache_.next() ; c ; c = n) {
+            n = c->next();
+            Traits::destroy(alloc, c);
+            Traits::deallocate(alloc, c, 1);
+        }
+    }
+
+    constexpr _Allocator& allocator() { return root_; }
+
     constexpr std::size_t size() const {
         return root_.size_;
+    }
+
+    template <typename _Destroy>
+    void clear(const _Destroy& destroy) {
+        clear(root_.get(), destroy);
+    }
+
+    template <typename _Destroy>
+    void clear(Node *n, const _Destroy& destroy) {
+        if (n) {
+            clear((n->*_member).child(0), destroy);
+            Node *c = (n->*_member).child(1);
+            destroy(n);
+            clear(c, destroy); // tail recursion
+        }
     }
     
     void add(Node* node) {
@@ -391,7 +422,8 @@ struct KDTreeMidpointSplitIntrusiveImpl
     }
 
     // TODO: support non-const return on non-const call?
-    const _Node* nearest(const Key& key, Distance* distOut = nullptr) const {
+    template <typename _Key>
+    const _Node* nearest(const _Key& key, Distance* distOut = nullptr) const {
         if (const Node* root = root_.get()) {
             Nearest1 nearest(*this, key);
             nearest(root);
@@ -402,10 +434,10 @@ struct KDTreeMidpointSplitIntrusiveImpl
         return nullptr;
     }
 
-    template <typename _Value, typename _Allocator, typename _NodeValueFn>
+    template <typename _Key, typename _Value, typename _ResultAllocator, typename _NodeValueFn>
     void nearest(
-        std::vector<std::pair<Distance, _Value>, _Allocator>& result,
-        const Key& key,
+        std::vector<std::pair<Distance, _Value>, _ResultAllocator>& result,
+        const _Key& key,
         std::size_t k,
         Distance maxDist,
         _NodeValueFn&& nodeValue) const
@@ -417,7 +449,7 @@ struct KDTreeMidpointSplitIntrusiveImpl
         // std::cout << "nearest = " << &result << std::endl;
         // result.size();
         if (const Node* root = root_.get()) {
-            NearestK<_Value, _Allocator, _NodeValueFn> nearest(
+            NearestK<_Value, _ResultAllocator, _NodeValueFn> nearest(
                 *this, result, key, k, maxDist, std::forward<_NodeValueFn>(nodeValue));
             nearest(root);
             std::sort_heap(result.begin(), result.end(), CompareFirst());
@@ -431,59 +463,98 @@ template <
     typename _T,
     typename _Space,
     typename _GetKey,
-    typename _Locking>
-struct KDTree<_T, _Space, _GetKey, MidpointSplit, DynamicBuild, _Locking>
+    typename _Locking,
+    typename _Allocator>
+struct KDTree<_T, _Space, _GetKey, MidpointSplit, DynamicBuild, _Locking, _Allocator>
     : private detail::KDTreeMidpointSplitIntrusiveImpl<
          detail::MidpointSplitNode<_T, _Locking>,
          _Space,
          detail::MidpointSplitNodeKey<_T, _Locking, _GetKey>,
-         true,
          _Locking,
-         &detail::MidpointSplitNode<_T, _Locking>::children_>
+         &detail::MidpointSplitNode<_T, _Locking>::children_,
+         typename std::allocator_traits<_Allocator>::template rebind_alloc<
+             detail::MidpointSplitNode<_T, _Locking>>>
 {    
     typedef detail::KDTreeMidpointSplitIntrusiveImpl<
         detail::MidpointSplitNode<_T, _Locking>,
         _Space,
         detail::MidpointSplitNodeKey<_T, _Locking, _GetKey>,
-        true,
         _Locking,
-        &detail::MidpointSplitNode<_T, _Locking>::children_> Base;
+        &detail::MidpointSplitNode<_T, _Locking>::children_,
+        typename std::allocator_traits<_Allocator>::template rebind_alloc<
+            detail::MidpointSplitNode<_T, _Locking>>> Base;
     
     typedef _Space Space;
     typedef typename Space::Distance Distance;
     typedef typename Space::State Key;
     typedef detail::MidpointSplitNode<_T, _Locking> Node;
+    typedef std::allocator_traits<_Allocator> AllocatorTraits;
+    typedef typename AllocatorTraits::template rebind_alloc<Node> NodeAllocator;
+    typedef std::allocator_traits<NodeAllocator> NodeAllocatorTraits;
     
 public:
-    KDTree(const Space& space, const _GetKey& getKey = _GetKey())
-        : Base(space, detail::MidpointSplitNodeKey<_T, _Locking, _GetKey>(getKey))
+    KDTree(
+        const Space& space,
+        const _GetKey& getKey = _GetKey(),
+        const _Allocator& alloc = _Allocator())
+        : Base(
+            space,
+            detail::MidpointSplitNodeKey<_T, _Locking, _GetKey>(getKey),
+            NodeAllocator(alloc)) // TODO: allocator for axiscache
+          // nodes_(NodeAllocator(alloc))
     {
+    }
+
+    ~KDTree() {
+        clear();
+    }
+
+    void clear() {
+        Base::clear([&] (Node *n) {
+            NodeAllocatorTraits::destroy(Base::allocator(), n);
+            NodeAllocatorTraits::deallocate(Base::allocator(), n, 1);
+        });
     }
     
     void add(const _T& arg) {
-        Base::add(new Node(arg));
+        // Base::add(new Node(arg));
+
+        typedef detail::AllocatorDestructor<NodeAllocator> Destruct;
+        NodeAllocator& na = Base::allocator();
+        std::unique_ptr<Node, Destruct> hold(NodeAllocatorTraits::allocate(na, 1), Destruct(na, 1));
+        NodeAllocatorTraits::construct(na, hold.get(), arg);
+        Base::add(hold.get());
+        hold.release();
     }
 
     using Base::size;
     
     template <typename ... _Args>
     void emplace(_Args&& ... args) {
-        Base::add(new Node(std::forward<_Args>(args)...));
+        // Base::add(new Node(std::forward<_Args>(args)...));
+        
+        typedef detail::AllocatorDestructor<NodeAllocator> Destruct;
+        NodeAllocator& na = Base::allocator();
+        std::unique_ptr<Node, Destruct> hold(NodeAllocatorTraits::allocate(na, 1), Destruct(na, 1));
+        NodeAllocatorTraits::construct(na, hold.get(), std::forward<_Args>(args)...);
+        Base::add(hold.get());
+        hold.release();
     }
 
-    const _T* nearest(const Key& key, Distance* distOut = nullptr) const {
+    template <typename _Key>
+    const _T* nearest(const _Key& key, Distance* distOut = nullptr) const {
         const Node* n = Base::nearest(key, distOut);
-        return n == nullptr ? nullptr : n; // ->value_;
+        return n == nullptr ? nullptr : &n->value_;
     }
 
-    template <typename _Allocator>
+    template <typename _Key, typename _ResultAllocator>
     void nearest(
-        std::vector<std::pair<Distance, _T>, _Allocator>& result,
-        const Key& key,
+        std::vector<std::pair<Distance, _T>, _ResultAllocator>& result,
+        const _Key& key,
         std::size_t k,
         Distance maxDist = std::numeric_limits<Distance>::infinity()) const
     {
-        Base::nearest(result, key, k, maxDist, [](const Node* n) -> const auto& { return *n; });
+        Base::nearest(result, key, k, maxDist, [](const Node* n) -> const auto& { return n->value_; });
     }
 };
 

@@ -41,7 +41,7 @@ unsigned so3VolumeIndex(const Eigen::MatrixBase<_Derived>& q) {
 }
 
 template <typename _Scalar>
-unsigned so3VolumeIndex(const Eigen::Quaternion<_Scalar>& q) {
+unsigned so3VolumeIndex(const Eigen::QuaternionBase<_Scalar>& q) {
     return so3VolumeIndex(q.coeffs());
 }
 
@@ -80,7 +80,7 @@ struct MidpointSO3TraversalBase {
         soBounds_[1].colwise() = Eigen::Array<_Scalar, 2, 1>(-M_SQRT1_2, M_SQRT1_2);
     }
 
-    inline constexpr unsigned dimensions() const {
+    constexpr unsigned dimensions() const {
         return 3;
     }
 

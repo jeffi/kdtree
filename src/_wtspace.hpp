@@ -205,7 +205,7 @@ struct MedianAccum<WeightedSpace<_Space>>
 
 template <typename _Space>
 struct MedianNearestTraversal<WeightedSpace<_Space>>
-    : private MedianNearestTraversal<_Space>
+    : MedianNearestTraversal<_Space>
 {
     typedef MedianNearestTraversal<_Space> Base;
     typedef typename _Space::State Key;

@@ -275,6 +275,19 @@ auto createThreeSE3Space() {
         createBoundedSE3_1to1Space<_Scalar>());
 }
 
+TEST_CASE(benchmark) {
+    using namespace unc::robotics::kdtree;
+    using namespace std::literals::chrono_literals;
+
+    std::size_t N = 100000;
+    std::size_t k = 1;
+    
+    benchmark("R^3l2", createBoundedL2Space<double, 3>(), N, k, 1s);
+    benchmark("R^6l2", createBoundedL2Space<double, 6>(), N, k, 1s);
+    benchmark("SO(3)", SO3Space<double>(), N, k, 1s);
+    benchmark("SE(3)", createBoundedSE3_1to1Space<double>(), N, k, 1s);
+}
+
 #define SCALAR_TESTS(name, split, space)                                \
     TEST_CASE(name##_##split##_##space##_float) {                       \
         test##name(create##space##Space<float>(), ::unc::robotics::kdtree:: split##Split{}); \
@@ -391,19 +404,6 @@ TEST_CASE(StaticBuildAndQuery_SE3_PI) {
                 SO3Space<double>(),
                 WeightedSpace<L2Space<double, 3>>(
                     M_PI, L2Space<double, 3>())));
-}
-
-TEST_CASE(benchmark) {
-    using namespace unc::robotics::kdtree;
-    using namespace std::literals::chrono_literals;
-
-    std::size_t N = 100000;
-    std::size_t k = 1;
-    
-    benchmark("R^3l2", createBoundedL2Space<double, 3>(), N, k, 1s);
-    benchmark("R^6l2", createBoundedL2Space<double, 6>(), N, k, 1s);
-    benchmark("SO(3)", SO3Space<double>(), N, k, 1s);
-    benchmark("SE(3)", createBoundedSE3_1to1Space<double>(), N, k, 1s);
 }
 
 // TODO: two SE3 spaces (compound of compounds)
