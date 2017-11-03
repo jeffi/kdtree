@@ -45,11 +45,11 @@ struct MidpointAddTraversal<_Node, RatioWeightedSpace<_Space, _Ratio>>
     using MidpointAddTraversal<_Node, _Space>::MidpointAddTraversal;
 
     template <typename _State>
-    inline Distance keyDistance(const _State& q) const {
+    constexpr Distance keyDistance(const _State& q) const {
         return MidpointAddTraversal<_Node, _Space>::keyDistance(q) * _Ratio::num / _Ratio::den;
     }
 
-    inline Distance maxAxis(unsigned *axis) const {
+    constexpr Distance maxAxis(unsigned *axis) const {
         return MidpointAddTraversal<_Node, _Space>::maxAxis(axis) * _Ratio::num / _Ratio::den;
     }
 };
@@ -71,11 +71,11 @@ struct MidpointAddTraversal<_Node, WeightedSpace<_Space>>
     }
 
     template <typename _State>
-    inline Distance keyDistance(const _State& q) const {
+    constexpr Distance keyDistance(const _State& q) const {
         return MidpointAddTraversal<_Node, _Space>::keyDistance(q) * weight_;
     }
 
-    inline Distance maxAxis(unsigned *axis) const {
+    constexpr Distance maxAxis(unsigned *axis) const {
         return MidpointAddTraversal<_Node, _Space>::maxAxis(axis) * weight_;
     }
 };
@@ -94,15 +94,15 @@ struct MidpointNearestTraversal<_Node, RatioWeightedSpace<_Space, _Ratio>>
     // TODO: keyDistance and maxAxis implementations are duplicated
     // with MidpointAddTraversal.  Would be nice to merge them.
     template <typename _State>
-    inline Distance keyDistance(const _State& q) const {
+    constexpr Distance keyDistance(const _State& q) const {
         return MidpointNearestTraversal<_Node, _Space>::keyDistance(q) * _Ratio::num / _Ratio::den;
     }
 
-    inline Distance maxAxis(unsigned *axis) const {
+    constexpr Distance maxAxis(unsigned *axis) const {
         return MidpointNearestTraversal<_Node, _Space>::maxAxis(axis) * _Ratio::num / _Ratio::den;
     }
     
-    inline Distance distToRegion() const {
+    constexpr Distance distToRegion() const {
         return MidpointNearestTraversal<_Node, _Space>::distToRegion() * _Ratio::num / _Ratio::den;
     }
 
@@ -131,15 +131,15 @@ struct MidpointNearestTraversal<_Node, WeightedSpace<_Space>>
     // TODO: keyDistance and maxAxis implementations are duplicated
     // with MidpointAddTraversal.  Would be nice to merge them.
     template <typename _State>
-    Distance keyDistance(const _State& q) const {
+    constexpr Distance keyDistance(const _State& q) const {
         return MidpointNearestTraversal<_Node, _Space>::keyDistance(q) * weight_;
     }
 
-    Distance maxAxis(unsigned *axis) const {
+    constexpr Distance maxAxis(unsigned *axis) const {
         return MidpointNearestTraversal<_Node, _Space>::maxAxis(axis) * weight_;
     }
     
-    Distance distToRegion() const {
+    constexpr Distance distToRegion() const {
         return MidpointNearestTraversal<_Node, _Space>::distToRegion() * weight_;
     }
 
@@ -158,7 +158,7 @@ struct MedianAccum<RatioWeightedSpace<_Space, _Ratio>>
     
     using Base::Base;
     
-    Distance maxAxis(unsigned *axis) const {
+    constexpr Distance maxAxis(unsigned *axis) const {
         return Base::maxAxis(axis) * _Ratio::num / _Ratio::den;
     }
 };
@@ -173,12 +173,12 @@ struct MedianNearestTraversal<RatioWeightedSpace<_Space, _Ratio>>
 
     using Base::Base;
     
-    Distance distToRegion() const {
+    constexpr Distance distToRegion() const {
         return Base::distToRegion() * _Ratio::num / _Ratio::den;
     }
 
     template <typename _Key>
-    Distance keyDistance(const _Key& key) const {
+    constexpr Distance keyDistance(const _Key& key) const {
         return Base::keyDistance(key) * _Ratio::num / _Ratio::den;
     }
 };
@@ -198,7 +198,7 @@ struct MedianAccum<WeightedSpace<_Space>>
     {
     }
     
-    Distance maxAxis(unsigned *axis) const {
+    constexpr Distance maxAxis(unsigned *axis) const {
         return Base::maxAxis(axis) * weight_;
     }
 };
@@ -221,12 +221,12 @@ struct MedianNearestTraversal<WeightedSpace<_Space>>
     {
     }
 
-    Distance distToRegion() const {
+    constexpr Distance distToRegion() const {
         return Base::distToRegion() * weight_;
     }
 
     template <typename _Key>
-    Distance keyDistance(const _Key& key) const {
+    constexpr Distance keyDistance(const _Key& key) const {
         return Base::keyDistance(key) * weight_;
     }
 
