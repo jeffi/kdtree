@@ -517,8 +517,7 @@ public:
     }
     
     void add(const _T& arg) {
-        // Base::add(new Node(arg));
-
+        // Base::add(new Node(arg));        
         typedef detail::AllocatorDestructor<NodeAllocator> Destruct;
         NodeAllocator& na = Base::allocator();
         std::unique_ptr<Node, Destruct> hold(NodeAllocatorTraits::allocate(na, 1), Destruct(na, 1));

@@ -36,4 +36,4 @@ clean:
 	$(RM) -r $(TARGET)
 
 # Include generated dependencies
-include $(patsubst %.cpp,$(TARGET)/%.d,$(testsrc))
+-include $(patsubst %.cpp,$(TARGET)/%.d,$(testsrc))

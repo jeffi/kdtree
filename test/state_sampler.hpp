@@ -38,9 +38,9 @@ struct StateSampler<unc::robotics::kdtree::L2Space<_Scalar, _dimensions>> {
 template <typename _Scalar>
 struct StateSampler<unc::robotics::kdtree::SO3Space<_Scalar>> {
     typedef unc::robotics::kdtree::SO3Space<_Scalar> Space;
-    template <typename _RNG>
+    template <typename _RNG, typename _Space>
     static typename Space::State
-    randomState(_RNG& rng, const Space& space) {
+    randomState(_RNG& rng, const _Space&) {
         typename Space::State q;
         std::uniform_real_distribution<_Scalar> dist01(0, 1);
         std::uniform_real_distribution<_Scalar> dist2pi(0, 2*M_PI);
@@ -55,6 +55,11 @@ struct StateSampler<unc::robotics::kdtree::SO3Space<_Scalar>> {
             std::sqrt(a)*std::cos(c));
     }
 };
+
+template <typename _Scalar>
+struct StateSampler<unc::robotics::kdtree::SO3AltSpace<_Scalar>>
+    : StateSampler<unc::robotics::kdtree::SO3Space<_Scalar>>
+{};
 
 template <typename _Space, typename _Ratio>
 struct StateSampler<unc::robotics::kdtree::RatioWeightedSpace<_Space, _Ratio>> {

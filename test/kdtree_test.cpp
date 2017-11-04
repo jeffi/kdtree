@@ -232,6 +232,7 @@ template <typename _Scalar> auto createBoundedL2_2Space() { return createBounded
 template <typename _Scalar> auto createBoundedL2_3Space() { return createBoundedL2Space<_Scalar, 3>(); }
 template <typename _Scalar> auto createBoundedL2_6Space() { return createBoundedL2Space<_Scalar, 6>(); }
 template <typename _Scalar> auto createSO3Space() { return unc::robotics::kdtree::SO3Space<_Scalar>(); }
+template <typename _Scalar> auto createSO3AltSpace() { return unc::robotics::kdtree::SO3AltSpace<_Scalar>(); }
 
 template <typename _Scalar>
 auto createBoundedSE3_1to1Space() {
@@ -282,10 +283,11 @@ TEST_CASE(benchmark) {
     std::size_t N = 100000;
     std::size_t k = 1;
     
-    benchmark("R^3l2", createBoundedL2Space<double, 3>(), N, k, 1s);
-    benchmark("R^6l2", createBoundedL2Space<double, 6>(), N, k, 1s);
-    benchmark("SO(3)", SO3Space<double>(), N, k, 1s);
-    benchmark("SE(3)", createBoundedSE3_1to1Space<double>(), N, k, 1s);
+    benchmark("R^3 l2", createBoundedL2Space<double, 3>(), N, k, 1s);
+    benchmark("R^6 l2", createBoundedL2Space<double, 6>(), N, k, 1s);
+    benchmark("SO(3)1", SO3Space<double>(), N, k, 1s);
+    benchmark("SO(3)2", SO3AltSpace<double>(), N, k, 1s);
+    benchmark("SE(3)1", createBoundedSE3_1to1Space<double>(), N, k, 1s);
 }
 
 #define SCALAR_TESTS(name, split, space)                                \
@@ -304,10 +306,11 @@ TEST_CASE(benchmark) {
     SCALAR_TESTS(name, Midpoint, space)
 
 #define SPACE_TESTS(name)                       \
+    SPLIT_TESTS(name, SO3)                      \
+    SPLIT_TESTS(name, SO3Alt)                   \
     SPLIT_TESTS(name, BoundedL2_2)              \
     SPLIT_TESTS(name, BoundedL2_3)              \
     SPLIT_TESTS(name, BoundedL2_6)              \
-    SPLIT_TESTS(name, SO3)                      \
     SPLIT_TESTS(name, BoundedSE3_1to1)          \
     SPLIT_TESTS(name, BoundedSE3_5to17)         \
     SPLIT_TESTS(name, BoundedSE3_31416to10000)  \
@@ -316,6 +319,7 @@ TEST_CASE(benchmark) {
 
 SPACE_TESTS(Add)
 SPACE_TESTS(KNN)
+
 
 
 // TEST_CASE(Add_BoundedL2) {

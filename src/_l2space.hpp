@@ -38,10 +38,11 @@ struct MidpointBoundedL2TraversalBase {
     typedef BoundedL2Space<_Scalar, _dimensions> Space;
     typedef typename Space::State Key;
 
-    const Key& key_;
+    const Key key_;
     Eigen::Array<_Scalar, _dimensions, 2> bounds_;
 
-    inline MidpointBoundedL2TraversalBase(const Space& space, const Key& key)
+    template <typename _Derived>
+    inline MidpointBoundedL2TraversalBase(const Space& space, const Eigen::MatrixBase<_Derived>& key)
         : key_(key), bounds_(space.bounds())
     {
     }
@@ -59,8 +60,9 @@ struct MidpointBoundedL2TraversalBase<_Scalar, Eigen::Dynamic> {
     const Key& key_;
     Eigen::Array<_Scalar, Eigen::Dynamic, 2> bounds_;
     unsigned dimensions_;
-    
-    inline MidpointBoundedL2TraversalBase(const Space& space, const Key& key)
+
+    template <typename _Derived>
+    inline MidpointBoundedL2TraversalBase(const Space& space, const Eigen::MatrixBase<_Derived>& key)
         : key_(key),
           bounds_(space.bounds()),
           dimensions_(space.dimensions())
@@ -116,7 +118,8 @@ struct MidpointNearestTraversal<_Node, BoundedL2Space<_Scalar, _dimensions>>
     _Scalar distToRegionSum_ = 0;
     Eigen::Array<_Scalar, _dimensions, 1> regionDeltas_;
 
-    MidpointNearestTraversal(const Space& space, const Key& key)
+    template <typename _Derived>
+    MidpointNearestTraversal(const Space& space, const Eigen::MatrixBase<_Derived>& key)
         : MidpointBoundedL2TraversalBase<_Scalar, _dimensions>(space, key),
           regionDeltas_(space.dimensions(), 1)
     {
@@ -229,11 +232,12 @@ struct MedianNearestTraversal<L2Space<_Scalar, _dimensions>> {
     typedef typename Space::State Key;
     typedef typename Space::Distance Distance;
     
-    const Key& key_;
+    const Key key_;
 
     Eigen::Array<_Scalar, _dimensions, 1> regionDeltas_;
 
-    MedianNearestTraversal(const Space& space, const Key& key)
+    template <typename _Derived>
+    MedianNearestTraversal(const Space& space, const Eigen::MatrixBase<_Derived>& key)
         : key_(key),
           regionDeltas_(space.dimensions())
     {

@@ -159,6 +159,29 @@ public:
     }
 };
 
+template <typename _Scalar>
+class SO3AltSpace {
+public:
+    typedef _Scalar Distance;
+    typedef Eigen::Quaternion<_Scalar> State;
+
+    constexpr unsigned dimensions() const { return 3; }
+
+    template <typename _Derived>
+    bool isValid(const Eigen::QuaternionBase<_Derived>& q) const {
+        return std::abs(1 - q.coeffs().squaredNorm()) <= 1e-5;
+    }
+
+    template <typename _DerivedA, typename _DerivedB>
+    inline Distance distance(
+        const Eigen::QuaternionBase<_DerivedA>& a,
+        const Eigen::QuaternionBase<_DerivedB>& b) const
+    {
+        Distance dot = std::abs(a.coeffs().matrix().dot(b.coeffs().matrix()));
+        return dot < 0 ? M_PI_2 : dot > 1 ? 0 : std::acos(dot);
+    }
+};
+
 template <typename _Space, typename _Ratio = std::ratio<1>>
 class RatioWeightedSpace : public _Space {
 public:
