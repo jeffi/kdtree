@@ -334,7 +334,7 @@ struct KDTreeMidpointSplitIntrusiveImpl
 
     template <typename _Value, typename _ResultAllocator, typename _NodeValueFn>
     struct NearestK : Nearest<NearestK<_Value, _ResultAllocator, _NodeValueFn>> {
-        std::vector<std::pair<Distance, _Value>, _ResultAllocator>& nearest_;
+        std::vector<std::pair<_Value, Distance>, _ResultAllocator>& nearest_;
         std::size_t k_;
         _NodeValueFn nodeValueFn_;
 
@@ -343,7 +343,7 @@ struct KDTreeMidpointSplitIntrusiveImpl
         template <typename _Key>
         NearestK(
             const KDTreeMidpointSplitIntrusiveImpl& tree,
-            std::vector<std::pair<Distance, _Value>, _ResultAllocator>& result,
+            std::vector<std::pair<_Value, Distance>, _ResultAllocator>& result,
             const _Key& key,
             std::size_t k,
             Distance dist,
@@ -357,15 +357,15 @@ struct KDTreeMidpointSplitIntrusiveImpl
 
         void update(Distance d, const _Node* n) {
             if (nearest_.size() == k_) {
-                std::pop_heap(nearest_.begin(), nearest_.end(), CompareFirst());
+                std::pop_heap(nearest_.begin(), nearest_.end(), CompareSecond());
                 nearest_.pop_back();
             }
 
-            nearest_.emplace_back(d, nodeValueFn_(n));
-            std::push_heap(nearest_.begin(), nearest_.end(), CompareFirst());
+            nearest_.emplace_back(nodeValueFn_(n), d);
+            std::push_heap(nearest_.begin(), nearest_.end(), CompareSecond());
 
             if (nearest_.size() == k_)
-                dist_ = nearest_[0].first;
+                dist_ = nearest_[0].second;
         }        
     };
 
@@ -436,7 +436,7 @@ struct KDTreeMidpointSplitIntrusiveImpl
 
     template <typename _Key, typename _Value, typename _ResultAllocator, typename _NodeValueFn>
     void nearest(
-        std::vector<std::pair<Distance, _Value>, _ResultAllocator>& result,
+        std::vector<std::pair<_Value, Distance>, _ResultAllocator>& result,
         const _Key& key,
         std::size_t k,
         Distance maxDist,
@@ -452,8 +452,22 @@ struct KDTreeMidpointSplitIntrusiveImpl
             NearestK<_Value, _ResultAllocator, _NodeValueFn> nearest(
                 *this, result, key, k, maxDist, std::forward<_NodeValueFn>(nodeValue));
             nearest(root);
-            std::sort_heap(result.begin(), result.end(), CompareFirst());
+            std::sort_heap(result.begin(), result.end(), CompareSecond());
         }
+    }
+
+    template <typename _Fn>
+    void visitAll(const Node *n, _Fn&& f) const {
+        if (n) {
+            f(n);
+            visitAll((n->*_member).child(0), f);
+            visitAll((n->*_member).child(1), f);
+        }
+    }
+
+    template <typename _Fn>
+    void visitAll(_Fn&& f) const {
+        visitAll(root_.get(), f);
     }
 };
 
@@ -548,12 +562,17 @@ public:
 
     template <typename _Key, typename _ResultAllocator>
     void nearest(
-        std::vector<std::pair<Distance, _T>, _ResultAllocator>& result,
+        std::vector<std::pair<_T, Distance>, _ResultAllocator>& result,
         const _Key& key,
         std::size_t k,
         Distance maxDist = std::numeric_limits<Distance>::infinity()) const
     {
         Base::nearest(result, key, k, maxDist, [](const Node* n) -> const auto& { return n->value_; });
+    }
+
+    template <typename _Fn>
+    void visitAll(_Fn&& f) const {
+        Base::visitAll([&] (const Node* n) { f(n->value_); });
     }
 };
 

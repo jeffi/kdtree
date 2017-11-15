@@ -64,10 +64,10 @@ struct MedianAccum;
 template <typename _Space>
 struct MedianNearestTraversal;
 
-struct CompareFirst {
+struct CompareSecond {
     template <typename _First, typename _Second>
     constexpr bool operator() (const std::pair<_First,_Second>& a, const std::pair<_First,_Second>& b) const {
-        return a.first < b.first;
+        return a.second < b.second;
     }
 };
 

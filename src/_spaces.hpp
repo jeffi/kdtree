@@ -55,11 +55,20 @@ public:
     }
 
     template <typename _DerivedA, typename _DerivedB>
-    inline Distance distance(
+    constexpr Distance distance(
         const Eigen::MatrixBase<_DerivedA>& a,
         const Eigen::MatrixBase<_DerivedB>& b) const
     {
         return (a - b).norm();
+    }
+
+    template <typename _DerivedA, typename _DerivedB>
+    constexpr State interpolate(
+        const Eigen::MatrixBase<_DerivedA>& from,
+        const Eigen::MatrixBase<_DerivedB>& to,
+        Distance t) const
+    {
+        return from + (to - from) * t;
     }
 };
 }
@@ -72,6 +81,11 @@ public:
     }
 
     constexpr unsigned dimensions() const { return _dimensions; }
+
+    template <typename _Derived>
+    bool isValid(const Eigen::MatrixBase<_Derived>& q) const {
+        return q.rows() == _dimensions && detail::L2SpaceBase<_Scalar, _dimensions>::isValid(q);
+    }
 };
 
 template <typename _Scalar>
@@ -83,15 +97,22 @@ public:
         : dimensions_(dimensions)
     {
     }
-    
+
     constexpr unsigned dimensions() const {
         return dimensions_;
+    }
+
+    template <typename _Derived>
+    bool isValid(const Eigen::MatrixBase<_Derived>& q) const {
+        return q.rows() == dimensions_ && detail::L2SpaceBase<_Scalar, Eigen::Dynamic>::isValid(q);
     }
 };
 
 template <typename _Scalar, int _dimensions>
 class BoundedL2Space : public L2Space<_Scalar, _dimensions> {
     Eigen::Array<_Scalar, _dimensions, 2> bounds_;
+    
+    typedef typename Eigen::Array<_Scalar, _dimensions, 2>::Index Index;
 
     void checkBounds() {
         assert((bounds_.col(0) < bounds_.col(1)).all());
@@ -130,8 +151,7 @@ public:
         return bounds_;
     }
 
-    template <typename _Index>
-    _Scalar bounds(_Index dim, _Index j) const {
+    _Scalar bounds(Index dim, Index j) const {
         return bounds_(dim, j);
     }
 };
@@ -156,6 +176,27 @@ public:
     {
         Distance dot = std::abs(a.coeffs().matrix().dot(b.coeffs().matrix()));
         return dot < 0 ? M_PI_2 : dot > 1 ? 0 : std::acos(dot);
+    }
+
+    template <typename _DerivedA, typename _DerivedB>
+    constexpr State interpolate(
+        const Eigen::QuaternionBase<_DerivedA>& from,
+        const Eigen::QuaternionBase<_DerivedB>& to,
+        Distance t) const
+    {
+        Distance dq = from.coeffs().matrix().dot(to.coeffs().matrix());
+        if (std::abs(dq) >= 1)
+            return from;
+        
+        Distance theta = std::acos(std::abs(dq));            
+        Distance d = 1 / std::sin(theta);
+        Distance s0 = std::sin((1 - t) * theta);
+        Distance s1 = std::sin(t * theta);
+
+        if (dq < 0)
+            s1 = -s1;
+
+        return State(d * (from.coeffs() * s0 + to.coeffs() * s1));
     }
 };
 
@@ -193,7 +234,7 @@ public:
     // inherit constructor
     using _Space::_Space;
 
-    RatioWeightedSpace() {}
+    // RatioWeightedSpace() {}
 
     RatioWeightedSpace(const _Space& space)
         : _Space(space)
@@ -259,7 +300,7 @@ class CompoundSpace {
     Spaces spaces_;
 
     static_assert(sizeof...(_Spaces) > 1, "compound space must have two or more subspaces");
-    
+
 public:
     typedef std::tuple<typename _Spaces::State...> State;
     typedef typename detail::SumResultType<typename _Spaces::Distance...>::type Distance;
@@ -308,6 +349,28 @@ public:
                     return subs.distance(suba, subb);
                 }, spaces_, a, b));
     }
+
+private:
+    template <typename _StateA, typename _StateB, std::size_t ... I>
+    constexpr State interpolate(
+        const _StateA& from,
+        const _StateB& to,
+        Distance t,
+        std::index_sequence<I...>) const
+    {
+        return State(std::get<I>(spaces_).interpolate(std::get<I>(from), std::get<I>(to), t)...);
+    }
+
+public:
+    template <typename _StateA, typename _StateB>
+    constexpr State interpolate(
+        const _StateA& from,
+        const _StateB& to,
+        Distance t) const
+    {
+        return interpolate(from, to, t, std::make_index_sequence<sizeof...(_Spaces)>{});
+    }
+
 };
 
 template <typename ... _Spaces>

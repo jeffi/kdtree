@@ -53,7 +53,7 @@ void testAdd(const Space& space, _Split&&) {
    
     KDTree<TestNode<Key>, Space, TestNodeKey, _Split> tree(space);
 
-    std::vector<std::pair<Distance, TestNode<Key>>> nearest;
+    std::vector<std::pair<TestNode<Key>, Distance>> nearest;
     std::mt19937_64 rng;
     std::vector<TestNode<Key>> nodes;
     for (std::size_t i=0 ; i<N ; ++i) {
@@ -84,7 +84,7 @@ void testKNN(const Space& space, _Split&&, std::size_t N = 10000, std::size_t Q 
         tree.add(nodes.back());
     }
 
-    std::vector<std::pair<Distance, TestNode<Key>>> nearest;
+    std::vector<std::pair<TestNode<Key>, Distance>> nearest;
     nearest.reserve(k);
     for (std::size_t i=0 ; i<Q ; ++i) {
         auto q = StateSampler<Space>::randomState(rng, space);
@@ -97,8 +97,8 @@ void testKNN(const Space& space, _Split&&, std::size_t N = 10000, std::size_t Q 
         });
 
         for (std::size_t j=0 ; j<k ; ++j) {
-            EXPECT(nearest[j].second.name_) == nodes[j].name_;
-            if (j) EXPECT(nearest[j-1].first) <= nearest[j].first;
+            EXPECT(nearest[j].first.name_) == nodes[j].name_;
+            if (j) EXPECT(nearest[j-1].second) <= nearest[j].second;
         }
     }    
 }
@@ -125,7 +125,7 @@ std::pair<double, std::size_t> benchmark(
         tree.add(nodes.back());
     }
 
-    typedef std::pair<Distance, TestNode<Key>> DistNode;
+    typedef std::pair<TestNode<Key>, Distance> DistNode;
     std::vector<DistNode, Eigen::aligned_allocator<DistNode>> nearest;
     nearest.reserve(k);
     constexpr std::size_t batchSize = 100;
@@ -177,7 +177,7 @@ void testStaticBuildAndQuery(const Space& space, std::size_t N = 10000) {
     }
 
 
-    std::vector<std::pair<Distance, TestNode<Key>>> nearest;
+    std::vector<std::pair<TestNode<Key>, Distance>> nearest;
     nearest.reserve(k);
     for (std::size_t i=0 ; i<Q ; ++i) {
         Key q = StateSampler<Space>::randomState(rng, space);
@@ -192,7 +192,7 @@ void testStaticBuildAndQuery(const Space& space, std::size_t N = 10000) {
             });
 
         for (std::size_t j=0 ; j<k ; ++j)
-            EXPECT(nearest[j].second.name_) == nodes[j].name_;
+            EXPECT(nearest[j].first.name_) == nodes[j].name_;
     }
 }
 

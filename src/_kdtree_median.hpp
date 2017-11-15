@@ -208,7 +208,7 @@ struct MedianNearestK
     using Base::dist_;
 
     std::size_t k_;
-    std::vector<std::pair<Distance, Value>, _ResultAllocator>& nearest_;
+    std::vector<std::pair<Value, Distance>, _ResultAllocator>& nearest_;
     NodeValueFn nodeValueFn_;
 
     template <typename _Key>
@@ -217,7 +217,7 @@ struct MedianNearestK
         const _Key& key,
         Distance dist,
         std::size_t k,
-        std::vector<std::pair<Distance, Value>, _ResultAllocator>& nearest,
+        std::vector<std::pair<Value, Distance>, _ResultAllocator>& nearest,
         NodeValueFn&& nodeValueFn)
         : Base(tree, key, dist), k_(k), nearest_(nearest), nodeValueFn_(nodeValueFn)
     {
@@ -225,15 +225,15 @@ struct MedianNearestK
     
     inline void update(Distance d, const Node& n) {
         if (nearest_.size() == k_) {
-            std::pop_heap(nearest_.begin(), nearest_.end(), CompareFirst());
+            std::pop_heap(nearest_.begin(), nearest_.end(), CompareSecond());
             nearest_.pop_back();
         }
         
-        nearest_.emplace_back(d, nodeValueFn_(n));
-        std::push_heap(nearest_.begin(), nearest_.end(), CompareFirst());
+        nearest_.emplace_back(nodeValueFn_(n), d);
+        std::push_heap(nearest_.begin(), nearest_.end(), CompareSecond());
 
         if (nearest_.size() == k_)
-            dist_ = nearest_[0].first;
+            dist_ = nearest_[0].second;
     }
 };
 
@@ -331,7 +331,7 @@ public:
 
     template <typename _ResultAllocator, typename _Value, typename _NodeValueFn>
     void nearest(
-        std::vector<std::pair<Distance, _Value>, _ResultAllocator>& result,
+        std::vector<std::pair<_Value, Distance>, _ResultAllocator>& result,
         const Key& key,
         std::size_t k,
         Distance maxRadius,
@@ -345,12 +345,12 @@ public:
             *this, key, maxRadius, k, result, std::forward<_NodeValueFn>(nodeValueFn));
         
         nearest(nodes_.begin(), nodes_.end());
-        std::sort_heap(result.begin(), result.end(), detail::CompareFirst());
+        std::sort_heap(result.begin(), result.end(), detail::CompareSecond());
     }
 
     template <typename _ResultAllocator>
     void nearest(
-        std::vector<std::pair<Distance, _T>, _ResultAllocator>& result,
+        std::vector<std::pair<_T, Distance>, _ResultAllocator>& result,
         const Key& key,
         std::size_t k,
         Distance maxRadius = std::numeric_limits<Distance>::infinity()) const
@@ -455,7 +455,7 @@ public:
 
     template <typename _Key, typename _ResultAllocator, typename _Value, typename _NodeValueFn>
     void nearest(
-        std::vector<std::pair<Distance, _Value>, _ResultAllocator>& result,
+        std::vector<std::pair<_Value, Distance>, _ResultAllocator>& result,
         const _Key& key,
         std::size_t k,
         Distance maxRadius,
@@ -468,12 +468,12 @@ public:
         detail::MedianNearestK<KDTree, _ResultAllocator, _Value, _NodeValueFn> nearest(
             *this, key, maxRadius, k, result, std::forward<_NodeValueFn>(nodeValueFn));
         scanTrees(nearest);
-        std::sort_heap(result.begin(), result.end(), detail::CompareFirst());
+        std::sort_heap(result.begin(), result.end(), detail::CompareSecond());
     }
 
     template <typename _Key, typename _ResultAllocator>
     void nearest(
-        std::vector<std::pair<Distance, _T>, _ResultAllocator>& result,
+        std::vector<std::pair<_T, Distance>, _ResultAllocator>& result,
         const _Key& key,
         std::size_t k,
         Distance maxRadius = std::numeric_limits<Distance>::infinity()) const
