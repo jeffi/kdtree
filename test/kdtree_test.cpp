@@ -93,11 +93,12 @@ void testKNN(const Space& space, _Split&&, std::size_t N = 10000, std::size_t Q 
         EXPECT(nearest.size()) == k;
 
         std::partial_sort(nodes.begin(), nodes.begin() + k, nodes.end(), [&q, &space] (auto& a, auto& b) {
-            return space.distance(q, a.key_) < space.distance(q, b.key_);
+            return space.distance(a.key_, q) < space.distance(b.key_, q);
         });
 
         for (std::size_t j=0 ; j<k ; ++j) {
-            EXPECT(nearest[j].first.name_) == nodes[j].name_;
+            EXPECT(nearest[j].second) == space.distance(nodes[j].key_, q);
+            // EXPECT(nearest[j].first.name_) == nodes[j].name_;
             if (j) EXPECT(nearest[j-1].second) <= nearest[j].second;
         }
     }    
@@ -233,6 +234,7 @@ template <typename _Scalar> auto createBoundedL2_3Space() { return createBounded
 template <typename _Scalar> auto createBoundedL2_6Space() { return createBoundedL2Space<_Scalar, 6>(); }
 template <typename _Scalar> auto createSO3Space() { return unc::robotics::kdtree::SO3Space<_Scalar>(); }
 template <typename _Scalar> auto createSO3AltSpace() { return unc::robotics::kdtree::SO3AltSpace<_Scalar>(); }
+template <typename _Scalar> auto createSO3RLSpace() { return unc::robotics::kdtree::SO3RLSpace<_Scalar>(); }
 
 template <typename _Scalar>
 auto createBoundedSE3_1to1Space() {
@@ -286,7 +288,8 @@ TEST_CASE(benchmark) {
     benchmark("R^3 l2", createBoundedL2Space<double, 3>(), N, k, 1s);
     benchmark("R^6 l2", createBoundedL2Space<double, 6>(), N, k, 1s);
     benchmark("SO(3)1", SO3Space<double>(), N, k, 1s);
-    benchmark("SO(3)2", SO3AltSpace<double>(), N, k, 1s);
+    benchmark("SO(3)A", SO3AltSpace<double>(), N, k, 1s);
+    benchmark("SO(3)R", SO3RLSpace<double>(), N, k, 1s);
     benchmark("SE(3)1", createBoundedSE3_1to1Space<double>(), N, k, 1s);
 }
 
@@ -306,16 +309,18 @@ TEST_CASE(benchmark) {
     SCALAR_TESTS(name, Midpoint, space)
 
 #define SPACE_TESTS(name)                       \
+    SPLIT_TESTS(name, SO3RL)                    \
     SPLIT_TESTS(name, SO3)                      \
-    SPLIT_TESTS(name, SO3Alt)                   \
-    SPLIT_TESTS(name, BoundedL2_2)              \
-    SPLIT_TESTS(name, BoundedL2_3)              \
-    SPLIT_TESTS(name, BoundedL2_6)              \
-    SPLIT_TESTS(name, BoundedSE3_1to1)          \
-    SPLIT_TESTS(name, BoundedSE3_5to17)         \
-    SPLIT_TESTS(name, BoundedSE3_31416to10000)  \
-    SPLIT_TESTS(name, BoundedSE3_PI)            \
-    SPLIT_TESTS(name, ThreeSE3)
+    SPLIT_TESTS(name, SO3Alt)
+
+    // SPLIT_TESTS(name, BoundedL2_2)              \
+    // SPLIT_TESTS(name, BoundedL2_3)              \
+    // SPLIT_TESTS(name, BoundedL2_6)              \
+    // SPLIT_TESTS(name, BoundedSE3_1to1)          \
+    // SPLIT_TESTS(name, BoundedSE3_5to17)         \
+    // SPLIT_TESTS(name, BoundedSE3_31416to10000)  \
+    // SPLIT_TESTS(name, BoundedSE3_PI)            \
+    // SPLIT_TESTS(name, ThreeSE3)
 
 SPACE_TESTS(Add)
 SPACE_TESTS(KNN)

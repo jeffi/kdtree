@@ -132,6 +132,7 @@ struct AllocatorDestructor {
 #include "_l2space.hpp"
 #include "_so3space.hpp"
 #include "_so3altspace.hpp"
+#include "_so3rlspace.hpp"
 #include "_wtspace.hpp"
 #include "_compoundspace.hpp"
 

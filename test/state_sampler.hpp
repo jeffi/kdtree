@@ -61,6 +61,11 @@ struct StateSampler<unc::robotics::kdtree::SO3AltSpace<_Scalar>>
     : StateSampler<unc::robotics::kdtree::SO3Space<_Scalar>>
 {};
 
+template <typename _Scalar>
+struct StateSampler<unc::robotics::kdtree::SO3RLSpace<_Scalar>>
+    : StateSampler<unc::robotics::kdtree::SO3Space<_Scalar>>
+{};
+
 template <typename _Space, typename _Ratio>
 struct StateSampler<unc::robotics::kdtree::RatioWeightedSpace<_Space, _Ratio>> {
     typedef unc::robotics::kdtree::RatioWeightedSpace<_Space, _Ratio> Space;
