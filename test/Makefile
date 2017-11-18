@@ -1,12 +1,13 @@
 TARGET = build
+SHELL = bash
 testsrc := $(wildcard *_test.cpp)
 testexe := $(patsubst %.cpp,$(TARGET)/%,$(testsrc))
 
-CXXFLAGS += -std=c++14 -I../src -Wall -pedantic -O3 -g
+CXXFLAGS += -std=c++14 -I../src -Wall -pedantic -Wno-ignored-attributes -O3 -g -stdlib=libc++
 PKG_CONFIG ?= pkg-config
 
 # Check if pkg-config is available, if so, use it to check for dependencies
-ifneq ($(shell command -v $(PKG_CONFIG)),)
+ifneq ($(shell command -v $(PKG_CONFIG) 2>/dev/null),)
 
 ifeq ($(shell $(PKG_CONFIG) --exists eigen3 && echo 1),1)
 CXXFLAGS += `pkg-config --cflags eigen3`
