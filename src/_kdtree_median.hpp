@@ -481,7 +481,11 @@ public:
         nearest(result, key, k, maxRadius, [] (const Node& n) -> const auto& { return n.data_; });
     }
 
-
+    template <typename _Fn>
+    void visitAll(_Fn&& f) const {
+        for (auto& n : nodes_)
+            f(n.data_);
+    }
 };
 
 
