@@ -70,10 +70,10 @@ TEST_CASE(SE3Distance) {
     State a({1, 0, 0, 0}, {-1.2, 3.4, 5.6});
     State b({0, 1, 0, 0}, {9.8, -7.6, 5.4});
 
-    EXPECT(space.distance(a, b)) == std::sqrt(
+    EXPECT(std::abs(space.distance(a, b) - (std::sqrt(
         std::pow(9.8 + 1.2, 2) +
         std::pow(3.4 + 7.6, 2) +
-        std::pow(5.6 - 5.4, 2))*3 + M_PI_2*5;
+        std::pow(5.6 - 5.4, 2))*3 + M_PI_2*5))) < 1e-9 ;
 }
 
 TEST_CASE(MixedScalarCompound) {
