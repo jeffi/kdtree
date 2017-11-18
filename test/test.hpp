@@ -5,6 +5,7 @@
 #include <sstream>
 #include <cassert>
 #include <vector>
+#include <chrono>
 
 namespace test {
 
