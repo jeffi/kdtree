@@ -36,6 +36,7 @@
 #include <functional>
 #include <utility>
 #include <type_traits>
+#include <ratio>
 #include "_tuple.hpp"
 
 namespace unc {

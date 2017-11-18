@@ -34,6 +34,8 @@
 #include "_spaces.hpp"
 
 #include <array>
+#include <vector>
+#include <atomic>
 
 namespace unc { namespace robotics { namespace kdtree {
 
