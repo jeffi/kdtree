@@ -65,7 +65,7 @@ struct MidpointAddTraversal<_Node, SO3RLSpace<_Scalar>>
     using MidpointSO3RLTraversalBase<_Scalar>::MidpointSO3RLTraversalBase;
 
     constexpr _Scalar maxAxis(unsigned *axis) const {
-        return (bounds_.col(1) - bounds_.col(0)).maxCoeff(axis);
+        return (bounds_.col(1) - bounds_.col(0)).maxCoeff(axis) * M_PI_2;
     }
 
     template <typename _Adder>
