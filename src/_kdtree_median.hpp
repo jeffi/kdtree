@@ -47,8 +47,8 @@ namespace detail {
 
 template <typename _T, typename _Distance>
 struct MedianSplitNode {
-    MedianSplitNodeMember<MedianSplitNode<_T, _Distance>, _Distance> hook_;
     _T data_;
+    MedianSplitNodeMember<MedianSplitNode<_T, _Distance>, _Distance> hook_;
     
     // TODO: delete?
     // MedianSplitNode(const MedianSplitNode&) = delete;

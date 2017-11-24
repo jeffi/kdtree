@@ -116,7 +116,7 @@ std::pair<double, std::size_t> benchmark(
     typedef typename Space::Distance Distance;
     typedef typename Space::State Key;
 
-    KDTree<TestNode<Key>, Space, TestNodeKey, MedianSplit> tree(space);
+    KDTree<TestNode<Key>, Space, TestNodeKey, MidpointSplit> tree(space);
 
     std::mt19937_64 rng;
     std::vector<TestNode<Key>> nodes;
@@ -278,20 +278,21 @@ auto createThreeSE3Space() {
         createBoundedSE3_1to1Space<_Scalar>());
 }
 
-TEST_CASE(benchmark) {
-    using namespace unc::robotics::kdtree;
-    using namespace std::literals::chrono_literals;
+// TEST_CASE(benchmark) {
+//     using namespace unc::robotics::kdtree;
+//     using namespace std::literals::chrono_literals;
 
-    std::size_t N = 100000;
-    std::size_t k = 1;
+//     std::size_t N = 1000000;
+//     std::size_t k = 20;
+//     auto timeLimit = 5s;
     
-    benchmark("R^3 l2", createBoundedL2Space<double, 3>(), N, k, 1s);
-    benchmark("R^6 l2", createBoundedL2Space<double, 6>(), N, k, 1s);
-    benchmark("SO(3)1", SO3Space<double>(), N, k, 1s);
-    benchmark("SO(3)A", SO3AltSpace<double>(), N, k, 1s);
-    benchmark("SO(3)R", SO3RLSpace<double>(), N, k, 1s);
-    benchmark("SE(3)1", createBoundedSE3_1to1Space<double>(), N, k, 1s);
-}
+//     // benchmark("R^3 l2", createBoundedL2Space<double, 3>(), N, k, timeLimit);
+//     // benchmark("R^6 l2", createBoundedL2Space<double, 6>(), N, k, timeLimit);
+//     benchmark("SO(3)F", SO3Space<double>(), N, k, timeLimit);
+//     benchmark("SO(3)A", SO3AltSpace<double>(), N, k, timeLimit);
+//     benchmark("SO(3)R", SO3RLSpace<double>(), N, k, timeLimit);
+//     benchmark("SE(3)F", createBoundedSE3_1to1Space<double>(), N, k, timeLimit);
+// }
 
 #define SCALAR_TESTS(name, split, space)                                \
     TEST_CASE(name##_##split##_##space##_float) {                       \
@@ -309,10 +310,9 @@ TEST_CASE(benchmark) {
     SCALAR_TESTS(name, Midpoint, space)
 
 #define SPACE_TESTS(name)                       \
-    SPLIT_TESTS(name, SO3RL)                    \
     SPLIT_TESTS(name, SO3)                      \
-    SPLIT_TESTS(name, SO3Alt)
-
+    SPLIT_TESTS(name, SO3Alt)                   \
+    SPLIT_TESTS(name, SO3RL)                    
     // SPLIT_TESTS(name, BoundedL2_2)              \
     // SPLIT_TESTS(name, BoundedL2_3)              \
     // SPLIT_TESTS(name, BoundedL2_6)              \
@@ -321,10 +321,6 @@ TEST_CASE(benchmark) {
     // SPLIT_TESTS(name, BoundedSE3_31416to10000)  \
     // SPLIT_TESTS(name, BoundedSE3_PI)            \
     // SPLIT_TESTS(name, ThreeSE3)
-
-SPACE_TESTS(Add)
-SPACE_TESTS(KNN)
-
 
 
 // TEST_CASE(Add_BoundedL2) {
@@ -416,3 +412,6 @@ TEST_CASE(StaticBuildAndQuery_SE3_PI) {
 }
 
 // TODO: two SE3 spaces (compound of compounds)
+
+SPACE_TESTS(Add)
+SPACE_TESTS(KNN)

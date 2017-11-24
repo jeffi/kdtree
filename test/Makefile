@@ -58,14 +58,18 @@ $(TARGET)/%.success: $(TARGET)/%
 %.d: ;
 .PRECIOUS: %.d
 
-.PHONY: all run_tests compile_tests clean
+.PHONY: all run_tests compile_tests clean benchmark
 
 run_tests: $(patsubst %.cpp,$(TARGET)/%.success,$(testsrc))
 
 compile_tests: $(testexe)
+
+benchmark: $(TARGET)/benchmark
+	$(TARGET)/benchmark | gnuplot
 
 clean:
 	$(RM) -r $(TARGET)
 
 # Include generated dependencies
 -include $(patsubst %.cpp,$(TARGET)/%.d,$(testsrc))
+-include $(TARGET)/benchmark.d

@@ -358,6 +358,15 @@ struct KDTreeMidpointSplitIntrusiveImpl
         }
 
         void update(Distance d, const _Node* n) {
+#if 0
+// R^3 l2: 4.76677 us/op
+// R^6 l2: 18.6769 us/op
+// SO(3)F: 37.8118 us/op
+// SO(3)A: 27.7197 us/op
+// SO(3)R: 105.142 us/op
+// SE(3)F: 161.597 us/op
+
+
             if (nearest_.size() == k_) {
                 std::pop_heap(nearest_.begin(), nearest_.end(), CompareSecond());
                 nearest_.pop_back();
@@ -368,7 +377,44 @@ struct KDTreeMidpointSplitIntrusiveImpl
 
             if (nearest_.size() == k_)
                 dist_ = nearest_[0].second;
-        }        
+#else
+// R^3 l2: 4.21419 us/op
+// R^6 l2: 16.1458 us/op
+// SO(3)F: 33.538 us/op
+// SO(3)A: 24.9379 us/op
+// SO(3)R: 95.3695 us/op
+// SE(3)F: 145.62 us/op
+
+            if (nearest_.size() < k_) {
+                // until we've reached k_ elements, we just collect
+                // elements in nearest_.  once k is reached, we
+                // maintain a heap.
+                nearest_.emplace_back(nodeValueFn_(n), d);
+                if (nearest_.size() < k_)
+                    return;
+                std::make_heap(nearest_.begin(), nearest_.end(), CompareSecond());
+            } else {
+                // slightly hackery, pop_heap() operates by first
+                // swapping the first and last element, then by moving
+                // the first element into position.  By first placing
+                // the new element at the end, it will be swapped into
+                // the top, then put in the correct position.  The old
+                // top will placed at the end, and we can then remove
+                // it.  This slightly shortens the pop_heap/push_heap
+                // alternative at the expense of requiring nearest_ to
+                // have a minimum capacity of k_ + 1.
+                nearest_.emplace_back(nodeValueFn_(n), d);
+                std::pop_heap(nearest_.begin(), nearest_.end(), CompareSecond());
+                nearest_.pop_back();
+                
+                // std::pop_heap(nearest_.begin(), nearest_.end(), CompareSecond());
+                // nearest_.back() = std::make_pair(nodeValueFn_(n), d);
+                // std::push_heap(nearest_.begin(), nearest_.end(), CompareSecond());
+            }
+
+            dist_ = nearest_[0].second;
+#endif
+        }
     };
 
     
@@ -454,7 +500,11 @@ struct KDTreeMidpointSplitIntrusiveImpl
             NearestK<_Value, _ResultAllocator, _NodeValueFn> nearest(
                 *this, result, key, k, maxDist, std::forward<_NodeValueFn>(nodeValue));
             nearest(root);
-            std::sort_heap(result.begin(), result.end(), CompareSecond());
+            if (result.size() < k) {
+                std::sort(result.begin(), result.end(), CompareSecond());
+            } else {
+                std::sort_heap(result.begin(), result.end(), CompareSecond());
+            }
         }
     }
 
