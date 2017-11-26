@@ -192,7 +192,7 @@ struct MidpointNearestTraversal<_Node, SO3AltSpace<_Scalar>>
             Distance d0 = dotBounds(0, a, key_);
             Distance d1 = dotBounds(1, a, key_);
             if (d0 < 0 || d1 > 0)
-                d = std::max(d, std::min(-d0, d1)); // std::min(std::abs(d0), std::abs(d1)));
+                d = std::max(d, std::min(std::abs(d0), std::abs(d1)));
         }
         return std::asin(d);
     }
